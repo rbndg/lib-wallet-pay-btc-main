@@ -18,11 +18,29 @@ const {
   pause,
   BitcoinCurrency
 } = require('./test-helpers.js')
+const Transaction = require ('../src/transaction.js')
+
+
+async function sendTx(btc, data) {
+  const tx = new Transaction({
+    network: btc.network,
+    provider: btc.provider,
+    keyManager: btc.keyManager,
+    getInternalAddress: btc._getInternalAddress.bind(btc),
+    syncManager: btc._syncManager
+  })
+  const sent = await tx.send(data)
+  return {
+    attempt: tx.getLastAttempt(),
+    sent
+  }
+}
 
 test.test('sendTransaction', { timeout: 600000 }, async function (t) {
   t.test('create transaction, mine and compare result with electrum', async function (t) {
-    const regtest = await regtestNode()
     const btcPay = await activeWallet()
+    const regtest = await regtestNode()
+    const addr = await btcPay.getNewAddress()
 
     const { result: nodeAddr } = await regtest.getNewAddress()
 
@@ -39,12 +57,16 @@ test.test('sendTransaction', { timeout: 600000 }, async function (t) {
         fee: fee[index] || +(Math.random() * 1000).toFixed()
       }
       console.log('sending amount', data)
-      const res = await btcPay.sendTransaction({}, data)
-
-      console.log(res)
-
-      await btcPay.provider._getTransaction(res.txid)
+      const sentData  = await sendTx(btcPay, data)
+      const res = sentData.attempt
+      const fmtData = sentData.sent
       await regtest.mine(1)
+
+      t.ok(fmtData.isValid, 'tx entry format is valid')
+      t.ok(fmtData.to_address === nodeAddr, 'formatted to address matches')
+      t.ok(fmtData.from_address.length > 0, 'formatted from address exists')
+      t.ok(new BitcoinCurrency(amount, 'main').eq(fmtData.amount) , 'formatted sent amount matches')
+
 
       const eTx = await btcPay.provider._getTransaction(res.txid)
       t.ok(eTx.hex === res.hex, 'tx hex is same')
@@ -105,7 +127,9 @@ test.test('fund new wallet and spend from it. check balances, confirmations', { 
     address: nodeAddr,
     fee: 10
   }
-  const res = await btcPay.sendTransaction({}, data)
+  const sentData  = await sendTx(btcPay, data)
+  const res = sentData.attempt
+
   const spentAmount = res.totalSpent * -1
   const totalBal = 20000000
   t.comment('waiting for confirmation')
@@ -116,13 +140,17 @@ test.test('fund new wallet and spend from it. check balances, confirmations', { 
   t.ok(bb.mempool.toNumber() === spentAmount, 'mempool balance is negative of totalSpent')
   t.ok(bb.pending.toNumber() === 0, 'pending balance is 0')
   t.ok(bb.confirmed.toNumber() === totalBal, 'confirmed  balance is 0.2')
+  console.log(bb)
   await btcPay._onNewTx()
+  await pause(5000)
   bb = await btcPay.getBalance()
+  console.log(bb)
   t.ok(bb.mempool.toNumber() === 0, 'mempool balance is 0')
   t.ok(bb.pending.toNumber() === spentAmount, 'pending balance is negative of totalSpent')
   t.ok(bb.confirmed.toNumber() === totalBal, 'confirmed balance is 0.2')
   await regtest.mine(1)
   await btcPay._onNewTx()
+  await pause(5000)
   bb = await btcPay.getBalance()
   t.ok(bb.mempool.toNumber() === 0, 'mempool balance is 0')
   t.ok(bb.pending.toNumber() === 0, 'pending balance is 0')
@@ -197,22 +225,18 @@ test.test('perform 2 transactions from 1 utxo before confirmation. Spending from
     address: nodeAddr,
     fee: 10
   }
-  const txp = btcPay.sendTransaction({}, data)
-  txp.broadcasted((tx) => {
-    t.comment(`sent tx 1: ${tx.txid}`)
-  })
-  const tx1 = await txp
+  const res = await sendTx(btcPay, data)
+  const tx1 = res.attempt
+  await pause(3000)
   let bal = await btcPay.getBalance()
-  t.ok(bal.mempool.toNumber() * -1 === tx1.totalSpent, 'mempool balance matches total spent for tx 1')
+  t.ok(bal.mempool.toNumber() * -1 === tx1.totalSpent.toNumber(), 'mempool balance matches total spent for tx 1')
   // We send second transaction spending change amount
-  const txp2 = btcPay.sendTransaction({}, data)
-  txp2.broadcasted((tx) => {
-    t.comment(`sent tx 2: ${tx.txid}`)
-  })
-  const tx2 = await txp2
+  const tx = await sendTx(btcPay, data)
+  const tx2 = tx.attempt
+  await pause(3000)
   bal = await btcPay.getBalance()
-  const totalSent = tx1.totalSpent + tx2.totalSpent
-  t.ok(bal.mempool.toNumber() * -1 === totalSent, 'mempool balance matches total spent for tx1 + tx2')
+  const totalSent = tx1.totalSpent.add(tx2.totalSpent)
+  t.ok(bal.mempool.toNumber() * -1 === totalSent.toNumber(), 'mempool balance matches total spent for tx1 + tx2')
 
   await btcPay.destroy()
 })
@@ -223,44 +247,45 @@ test.test('perform 2 transactions from 1 utxo before confirmation. Spending from
 //
 //
 
-// test.solo('sweep wallet ', { timeout: 10000000 }, async (t)=>{
-//  // Leave this running to keep doing transactions
-//  const regtest = await regtestNode()
-//  const btcPay = await activeWallet({ newWallet: true })
-//  const amount = 0.1
-//
-//  t.comment('funding new wallet')
-//  const addr = await btcPay.getNewAddress()
-//  await regtest.sendToAddress({ address: addr.address, amount })
-//  const { result: nodeAddr } = await regtest.getNewAddress()
-//  await regtest.mine(3)
-//  await btcPay._onNewTx()
-//  let bal = await btcPay.getBalance()
-//  t.ok(+bal.consolidated.toMainUnit() === amount, 'balance matches')
-//
-//  let x = 0
-//  while ( bal.consolidated.toNumber() !== 0) {
-//    console.log(x)
-//    x++
-//    const data = {
-//      amount: 700,
-//      unit: 'base',
-//      address: nodeAddr,
-//      fee: 5,
-//      deductFee: true
-//    }
-//    t.comment('sending')
-//    let sent
-//    try {
-//      sent = await btcPay.sendTransaction({}, data)
-//    } catch (err) {
-//      console.log(err)
-//    }
-//    await regtest.mine(1)
-//    await btcPay._onNewTx()
-//
-//    bal  = await btcPay.getBalance()
-//    t.comment('new balance: '+bal.consolidated.toMainUnit())
-//
-//  }
-// })
+ //test.solo('sweep wallet ', { timeout: 10000000 }, async (t)=>{
+ // // Leave this running to keep doing transactions
+ // const regtest = await regtestNode()
+ // const btcPay = await activeWallet({ newWallet: true })
+ // const amount = 0.1
+ //
+ // t.comment('funding new wallet')
+ // const addr = await btcPay.getNewAddress()
+ // await regtest.sendToAddress({ address: addr.address, amount })
+ // const { result: nodeAddr } = await regtest.getNewAddress()
+ // await regtest.mine(3)
+ // await btcPay._onNewTx()
+ // let bal = await btcPay.getBalance()
+ // t.ok(+bal.consolidated.toMainUnit() === amount, 'balance matches')
+ //
+ // let x = 0
+ // while ( bal.consolidated.toNumber() !== 0) {
+ //   console.log(x)
+ //   x++
+ //   const data = {
+ //     amount: 700,
+ //     unit: 'base',
+ //     address: nodeAddr,
+ //     fee: 5,
+ //     deductFee: true
+ //   }
+ //   t.comment('sending')
+ //   let sent
+ //   try {
+ //     sent = await sendTx(btcPay, data)
+ //     await pause(3000)
+ //   } catch (err) {
+ //     console.log(err)
+ //   }
+ //   await regtest.mine(1)
+ //   await btcPay._onNewTx()
+ //
+ //   bal  = await btcPay.getBalance()
+ //   t.comment('new balance: '+bal.consolidated.toMainUnit())
+ //
+ // }
+ //})

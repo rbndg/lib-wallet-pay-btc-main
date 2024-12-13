@@ -14,6 +14,8 @@
 'use strict'
 
 const { WalletPay, HdWallet } = require('lib-wallet')
+const Provider = require('./provider.js')
+const KeyManager = require('./wallet-key-btc.js')
 const Transaction = require('./transaction.js')
 const SyncManager = require('./sync-manager.js')
 const Bitcoin = require('./currency')
@@ -78,7 +80,7 @@ class WalletPayBitcoin extends WalletPay {
 
     // @desc use default key manager
     if (!this.keyManager) {
-      this.keyManager = new (require('./wallet-key-btc.js'))({ seed: wallet.seed, network: this.network })
+      this.keyManager = new KeyManager({ seed: wallet.seed, network: this.network })
       await this.keyManager.init()
     }
 
@@ -91,7 +93,7 @@ class WalletPayBitcoin extends WalletPay {
 
     if (!this.provider) {
       this._electrum_config.store = this.store
-      this.provider = new (require('./electrum.js'))(this._electrum_config)
+      this.provider = new Provider(this._electrum_config)
     }
 
     if (!this.provider.isConnected()) {
@@ -206,7 +208,7 @@ class WalletPayBitcoin extends WalletPay {
    * @returns {Promise}
    **/
   getTransactions (opts, fn) {
-    return this._syncManager.getTransactions(fn)
+    return this._syncManager.getTransactions(opts, fn)
   }
 
   /**
