@@ -165,30 +165,41 @@ test('getNewAddress - address reuse logic', async (t) => {
   await btcPay2.destroy()
 })
 
-test('getTransactions', async (t) => {
+test.solo('getTransactions', async (t) => {
   const btcPay = await activeWallet()
 
   t.comment('syncing transactions')
   await btcPay.syncTransactions({ reset: true })
 
   let last = 0
-  const max = 5
-  let c = 0
-  await btcPay.getTransactions({}, async (tx) => {
-    const h = tx[0].height
+  const limit = 5
+  const tx0 =  await btcPay.getTransactions({ limit })
+  t.ok(tx0.length === limit, 'tx length is same as limit')
+  tx0.forEach((tx) => {
     if (!last) {
-      last = h
+      last = tx.height
       return
     }
-    t.ok(last < h, 'tx height is in descending order height: ' + h)
-    last = h
-    c++
-    if (c === max) {
-      await btcPay.destroy()
-      t.end()
-    }
+    t.ok(last >= tx.height, 'tx height is in descending order height: ' + tx.height)
+    last = tx.height
   })
-  if(!c) t.fail('no tx found')
+  const tx1 =  await btcPay.getTransactions({ limit, reverse : true })
+  t.ok(tx1.length === limit, 'tx length is same as limit. reverse order')
+  last = 0
+  tx1.forEach((tx) => {
+    if (!last) {
+      last = tx.height
+      return
+    }
+    t.ok(last <= tx.height, 'tx height is in ascending order height: ' + tx.height)
+    last = tx.height
+  })
+  const tx2 =  await btcPay.getTransactions({ limit: 1, offset: 1, reverse: true })
+  const tx3=  await btcPay.getTransactions({ limit: 2, offset: 2, reverse: true })
+  t.alike(tx1[1],tx2[0], `limit 1, offset 1 works`)
+  t.alike(tx1.slice(2,4),tx3, `limit 2 offset 2 works`)
+
+  await btcPay.destroy()
 });
 
 (async () => {

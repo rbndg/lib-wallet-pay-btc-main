@@ -19,6 +19,7 @@ const UnspentStore = require('./unspent-store.js')
 const { AddressManager } = require('./address-manager.js')
 const AddressWatch = require('./address-watch.js')
 const TotalBalance = require('./total-balance.js')
+const { console } = require('inspector')
 
 const P2WPKH = 'p2wpkh'
 
@@ -425,8 +426,8 @@ class SyncManager extends EventEmitter {
     return this._unspent.getUtxoForAmount(value, strategy)
   }
 
-  getTransactions (fn) {
-    return this._addr.getTransactions(fn)
+  getTransactions (opts, fn) {
+    return this._addr.getTransactions(opts, fn)
   }
 }
 

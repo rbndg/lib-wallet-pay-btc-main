@@ -38,7 +38,7 @@ class Transaction extends EventEmitter {
     let txid
     try {
       txid = await this._broadcastTransaction(this.getLastAttempt())
-    } catch(err) {
+    } catch (err) {
       console.log(err)
       throw new Error('failed to broadcast tx')
     }
@@ -50,7 +50,7 @@ class Transaction extends EventEmitter {
     return tx
   }
 
-  getLastAttempt() {
+  getLastAttempt () {
     return this._txData.at(-1)
   }
 
@@ -120,7 +120,7 @@ class Transaction extends EventEmitter {
       to: address,
       feeRate: psbt.getFeeRate(),
       fee: totalFee.toNumber(),
-      totalSpent: new Bitcoin(totalFee.plus(sendAmount.toBaseUnit()).toNumber(),'base'),
+      totalSpent: new Bitcoin(totalFee.plus(sendAmount.toBaseUnit()).toNumber(), 'base'),
       vSize: tx.virtualSize(),
       hex: tx.toHex(),
       utxo,
@@ -136,11 +136,10 @@ class Transaction extends EventEmitter {
       fee_rate: sentTx.feeRate,
       total_amount: sentTx.totalSpent,
       amount: sendAmount,
-      from_address: utxo.map(({address}) =>  address),
-      direction : WalletPay.TxEntry.OUTGOING
+      from_address: utxo.map(({ address }) => address),
+      direction: WalletPay.TxEntry.OUTGOING
     })
   }
-  
 
   async _createTransaction ({ address, amount, unit, fee }) {
     if (!fee || fee <= 0 || fee > this._max_fee_limit) throw new Error('Invalid fee ' + fee)
@@ -155,16 +154,15 @@ class Transaction extends EventEmitter {
 
     try {
       await this._generateRawTx(utxoSet, fee, sendAmount, address, changeAddr)
-    } catch(err) {
-      throw new Error('Failed to simulate tx: '+ err.message)
+    } catch (err) {
+      throw new Error('Failed to simulate tx: ' + err.message)
     }
 
-    try { 
+    try {
       finalTx = await this._generateRawTx(utxoSet, fee, sendAmount, address, changeAddr, this.getLastAttempt().vSize)
-    } catch(err) {
-      throw new Error('failed to send transaction'+ err.message)
+    } catch (err) {
+      throw new Error('failed to send transaction' + err.message)
     }
-
 
     await this._syncManager.addSentTx(this.getLastAttempt())
     return finalTx
