@@ -165,7 +165,7 @@ test('getNewAddress - address reuse logic', async (t) => {
   await btcPay2.destroy()
 })
 
-test.solo('getTransactions', async (t) => {
+test('getTransactions', async (t) => {
   const btcPay = await activeWallet()
 
   t.comment('syncing transactions')
@@ -173,7 +173,7 @@ test.solo('getTransactions', async (t) => {
 
   let last = 0
   const limit = 5
-  const tx0 =  await btcPay.getTransactions({ limit })
+  const tx0 = await btcPay.getTransactions({ limit })
   t.ok(tx0.length === limit, 'tx length is same as limit')
   tx0.forEach((tx) => {
     if (!last) {
@@ -183,9 +183,10 @@ test.solo('getTransactions', async (t) => {
     t.ok(last >= tx.height, 'tx height is in descending order height: ' + tx.height)
     last = tx.height
   })
-  const tx1 =  await btcPay.getTransactions({ limit, reverse : true })
+  const tx1 = await btcPay.getTransactions({ limit, reverse: true })
   t.ok(tx1.length === limit, 'tx length is same as limit. reverse order')
   last = 0
+  let queryTx
   tx1.forEach((tx) => {
     if (!last) {
       last = tx.height
@@ -193,11 +194,13 @@ test.solo('getTransactions', async (t) => {
     }
     t.ok(last <= tx.height, 'tx height is in ascending order height: ' + tx.height)
     last = tx.height
+    queryTx = tx
   })
-  const tx2 =  await btcPay.getTransactions({ limit: 1, offset: 1, reverse: true })
-  const tx3=  await btcPay.getTransactions({ limit: 2, offset: 2, reverse: true })
-  t.alike(tx1[1],tx2[0], `limit 1, offset 1 works`)
-  t.alike(tx1.slice(2,4),tx3, `limit 2 offset 2 works`)
+  const tx2 = await btcPay.getTransactions({ limit: 1, offset: 1, reverse: true })
+  const tx3 = await btcPay.getTransactions({ limit: 2, offset: 2, reverse: true })
+  
+  t.alike(tx1[1], tx2[0], 'limit 1, offset 1 works')
+  t.alike(tx1.slice(2, 4), tx3, 'limit 2 offset 2 works')
 
   await btcPay.destroy()
 });
@@ -262,7 +265,7 @@ test.solo('getTransactions', async (t) => {
     await regtest.mine(1)
     await pass.confirmed.promise
 
-    const  totalBalance = await btcPay.getBalance({})
+    const totalBalance = await btcPay.getBalance({})
     t.ok(+totalBalance.consolidated.toMainUnit() === amount, 'total wallet balance matches')
     await btcPay.destroy()
     t.end()
@@ -404,7 +407,7 @@ test('syncTransaction - catch up missed tx', async (t) => {
   await bp.destroy()
 })
 
-solo('syncTransaction - balance check', async (t) => {
+test('syncTransaction - balance check', async (t) => {
   const regtest = await regtestNode()
   t.comment('create new wallet')
   const btcPay = await activeWallet({ newWallet: true })
@@ -419,7 +422,7 @@ solo('syncTransaction - balance check', async (t) => {
   await btcPay._onNewTx()
   let checked = false
   async function checkBal (pt, path, hasTx, gapCount) {
-    if(checked) return 
+    if (checked) return
     checked = true
     t.ok(path === payAddr.path, 'first path is checked')
     const { hash, addr } = btcPay.keyManager.pathToScriptHash(path, 'p2wpkh')

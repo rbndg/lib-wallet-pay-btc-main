@@ -19,6 +19,7 @@ const KeyManager = require('./wallet-key-btc.js')
 const Transaction = require('./transaction.js')
 const SyncManager = require('./sync-manager.js')
 const Bitcoin = require('./currency')
+const FeeEstimate = require('./fee-estimate.js')
 const {
   BlockCounter,
   StateDb
@@ -55,6 +56,7 @@ class WalletPayBitcoin extends WalletPay {
     // @desc: Only supported address type.
     this._addressType = 'p2wpkh'
     this.Currency = Bitcoin
+    this._feeEst = new FeeEstimate()
   }
 
   /**
@@ -286,6 +288,10 @@ class WalletPayBitcoin extends WalletPay {
 
   static parsePath (path) {
     return HdWallet.parsePath(path)
+  }
+
+  async getFeeEstimate () {
+    return this._feeEst.getEstimate()
   }
 }
 

@@ -199,7 +199,6 @@ class AddressManager {
     const offset = opts.offset || 0
 
     await this.history.entries(async (key, value) => {
-      console.log(value)
       if (skipped < offset) {
         skipped++
         return
