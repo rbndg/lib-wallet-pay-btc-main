@@ -73,10 +73,6 @@ class WalletPayBitcoin extends WalletPay {
     this.ready = false
   }
 
-  /**
-   * @description Start bitcoin asset.
-   * @param {Wallet} wallet an instance of Wallet
-   **/
   async initialize (wallet) {
     if (this.ready) return
 
@@ -101,6 +97,8 @@ class WalletPayBitcoin extends WalletPay {
     if (!this.provider.isConnected()) {
       await this.provider.connect()
     }
+
+    this.loadModule('provider')
 
     let coinType
     if (['bitcoin', 'mainnet'].includes(this.network)) {
