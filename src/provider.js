@@ -369,7 +369,7 @@ class Electrum extends ConnectionManager {
       this._client.once('close', () => {
         resolve()
       })
-      this._client.destroy()
+      this._client.end()
       this._client = null
     })
   }
