@@ -98,7 +98,7 @@ class WalletPayBitcoin extends WalletPay {
       await this.provider.connect()
     }
 
-    this.loadModule('provider')
+    this._loadPlugin('provider')
 
     let coinType
     if (['bitcoin', 'mainnet'].includes(this.network)) {
