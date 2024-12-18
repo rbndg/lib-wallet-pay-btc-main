@@ -192,7 +192,7 @@ class AddressManager {
   * @param {function} fn callback function to process each transaction
   * @returns {Promise}
   */
-  async getTransactions (opts) {
+  async getTransactions (opts = {}) {
     let results = []
     let skipped = 0
     const limit = opts.limit || 1000
