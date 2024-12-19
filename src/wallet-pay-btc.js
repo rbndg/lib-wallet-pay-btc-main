@@ -289,7 +289,7 @@ class WalletPayBitcoin extends WalletPay {
   }
 
   async getFeeEstimate () {
-    return this._feeEst.getEstimate()
+    return this._feeEst.getFeeEstimate()
   }
 }
 

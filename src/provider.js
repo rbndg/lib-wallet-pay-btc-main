@@ -141,8 +141,8 @@ class Electrum extends ConnectionManager {
   connect () {
     return new Promise((resolve, reject) => {
       this.setStatus(STATUS.CONNECTING)
-      if (this._client) {
-        throw new Error('socket already  exists')
+      if (this.isConnected()) {
+        return resolve()
       }
       this._client = this._net.createConnection(this.port, this.host, () => {
         this.setStatus(STATUS.CONNECTED)
@@ -155,7 +155,7 @@ class Electrum extends ConnectionManager {
           this._handleResponse(data)
         })
       })
-      this._client.once('close', () => {
+      this._client.once('end', () => {
         this.setStatus(STATUS.DISCONNECTED)
       })
       this._client.once('error', (err) => {

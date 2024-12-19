@@ -26,7 +26,7 @@ class MempoolSpace {
     this._http = config.http || https
   }
 
-  getEstimate () {
+  getFeeEstimate () {
     return new Promise((resolve, reject) => {
       const { hostname, path } = this
 
