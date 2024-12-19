@@ -140,10 +140,10 @@ class Electrum extends ConnectionManager {
   **/
   connect () {
     return new Promise((resolve, reject) => {
-      this.setStatus(STATUS.CONNECTING)
       if (this.isConnected()) {
         return resolve()
       }
+      this.setStatus(STATUS.CONNECTING)
       this._client = this._net.createConnection(this.port, this.host, () => {
         this.setStatus(STATUS.CONNECTED)
         resolve()
