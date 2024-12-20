@@ -106,7 +106,9 @@ class RequestCache {
 
 class Electrum extends ConnectionManager {
   constructor (config = {}) {
-    super()
+    super({
+      name: 'provider'
+    })
     this._subscribe()
     this.port = config.port || 8001
     this.host = config.host || 'http://127.0.0.1'
@@ -139,7 +141,7 @@ class Electrum extends ConnectionManager {
   * @param {Boolean} opts.reconnect - reconnect if connection is lost.
   **/
   connect () {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       if (this.isConnected()) {
         return resolve()
       }
