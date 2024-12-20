@@ -182,7 +182,10 @@ class Electrum extends ConnectionManager {
       const id = Date.now() + '-' + parseInt(Math.random() * 100000000)
       const data = this._rpcPayload(method, params, id)
       this.requests.set(id, [resolve, reject, method])
-      this._client.write(data + '\n')
+      try {
+        this._client.write(data + '\n')
+      } catch {
+      }
     })
   }
 
@@ -372,7 +375,6 @@ class Electrum extends ConnectionManager {
         resolve()
       })
       this._client.end()
-      this._client = null
     })
   }
 
