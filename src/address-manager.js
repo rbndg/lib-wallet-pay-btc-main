@@ -171,16 +171,14 @@ class AddressManager {
     return this.history.get('txid:' + txid)
   }
 
-  /**
-  * @desc Store transaction history in history store
-  **/
-  async storeTxHistory (history) {
-    for (const tx of history) {
-      // remove from mempool
-      await this.history.delete(`i:0:${tx.txid}}`, tx)
-      await this.history.put(`i:${tx.height}:${tx.txid}`, tx)
-      await this.history.put(`tx:${tx.txid}`, tx.height)
-    }
+  async getHeight (txid) {
+    return this.history.get(`tx:${txid}}`)
+  }
+
+  async storeTx (tx) {
+    await this.history.delete(`i:0:${tx.txid}}`, tx)
+    await this.history.put(`i:${tx.height}:${tx.txid}`, tx)
+    await this.history.put(`tx:${tx.txid}`, tx.height)
   }
 
   getMempoolTx () {

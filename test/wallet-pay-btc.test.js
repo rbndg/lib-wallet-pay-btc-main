@@ -206,7 +206,7 @@ test('getTransactions', async (t) => {
 });
 
 (async () => {
-  test('balance check', async (tst) => {
+  test.solo('balance check', async (tst) => {
     const t = tst.test('create address, send btc and check balance')
     const regtest = await regtestNode()
     t.comment('create new wallet')
@@ -225,6 +225,9 @@ test('getTransactions', async (t) => {
           console.log(e)
           continue
         }
+
+        t.ok(tx.direction === 0, 'tx direction is correct')
+        t.ok(+tx.amount.toMainUnit() === amount, 'amount is correct')
 
         const bal = balance[state].toMainUnit()
         t.ok(bal === amount.toString(), `address balance matches sent amount ${state} ${addr} - ${amount} - ${bal}`)
@@ -407,7 +410,7 @@ test('syncTransaction - catch up missed tx', async (t) => {
   await bp.destroy()
 })
 
-test('syncTransaction - balance check', async (t) => {
+test.solo('syncTransaction - balance check', async (t) => {
   const regtest = await regtestNode()
   t.comment('create new wallet')
   const btcPay = await activeWallet({ newWallet: true })
@@ -447,7 +450,7 @@ test('syncTransaction - balance check', async (t) => {
   await btcPay.syncTransactions({ restart: true })
 })
 
-test('bip84 test vectors', async function (t) {
+test.solo('bip84 test vectors', async function (t) {
   // LINK: https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki
   const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
   const km = new KeyManager({
@@ -470,7 +473,7 @@ test('bip84 test vectors', async function (t) {
 
   t.ok(addr1.address === 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', 'first receive address')
   t.ok(addr1.path === "m/84'/0'/0'/0/0", 'first receive path')
-  t.ok(addr1.privatKey === 'KyZpNDKnfs94vbrwhJneDi77V6jF64PWPF8x5cdJb8ifgg2DUc9d', 'first receive private key')
+  t.ok(addr1.privateKey === 'KyZpNDKnfs94vbrwhJneDi77V6jF64PWPF8x5cdJb8ifgg2DUc9d', 'first receive private key')
   t.ok(addr1.publicKey === '0330d54fd0dd420a6e5f8d3624f5f3482cae350f79d5f0753bf5beef9c2d91af3c', 'first receive public key')
 
   t.ok(addr2.address === 'bc1qnjg0jd8228aq7egyzacy8cys3knf9xvrerkf9g', 'second recieve address')

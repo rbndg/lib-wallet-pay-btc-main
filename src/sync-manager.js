@@ -19,7 +19,9 @@ const UnspentStore = require('./unspent-store.js')
 const { AddressManager } = require('./address-manager.js')
 const AddressWatch = require('./address-watch.js')
 const TotalBalance = require('./total-balance.js')
+const { WalletPay } = require('lib-wallet')
 
+const TxEntry = WalletPay.TxEntry
 const P2WPKH = 'p2wpkh'
 
 /**
@@ -217,15 +219,49 @@ class SyncManager extends EventEmitter {
 
     txHistory = await Promise.all(txHistory.map(async (tx) => {
       const txState = this._getTxState(tx)
-      await this._processUtxo(tx.out, 'out', txState, tx.fee, path)
-      await this._processUtxo(tx.in, 'in', txState, 0, path)
+      const outs = await this._processUtxo(tx.out, 'out', txState, tx.fee, path)
+      const ins = await this._processUtxo(tx.in, 'in', txState, 0, path)
+
       if (tx.height === 0 && !tx.mempool_first_seen) {
         tx.mempool_ts = Date.now()
       }
-      return tx
-    }))
 
-    await _addr.storeTxHistory(txHistory)
+      const totalOutput = outs.reduce((sum, d) => {
+        if (!d.own_addr) return sum
+        return sum.add(d.value)
+      }, new Bitcoin(0, 'main'))
+
+      const ownOuts = outs.filter((out) => out.own_addr)
+      const ownIns = ins.filter((ins) => ins.own_addr)
+
+      let direction
+      if (ownOuts.length === tx.out && ownIns.length === tx.in) {
+        direction = TxEntry.INTERNAL
+      } else if (ownIns.length === 0 && ownOuts.length > 0) {
+        direction = TxEntry.INCOMING
+      } else if (ownIns.length > 0) {
+        direction = TxEntry.OUTGOING
+      } else {
+        direction = TxEntry.UNKNOWN
+      }
+
+      const entry = new TxEntry({
+        txid: tx.txid,
+        from_address: tx.out.map(({ address }) => address),
+        to_address: tx.in.map(({ address }) => address),
+        fee: tx.fee,
+        amount: totalOutput,
+        height: tx.height,
+        direction
+      })
+
+      const dbTxHeight = await _addr.getHeight(entry.txid)
+      if (!dbTxHeight || dbTxHeight === 0) {
+        await _addr.storeTx(entry)
+        this.emit('new-tx', entry)
+      }
+      return entry
+    }))
 
     txHistory.forEach((tx) => {
       this._emitTxEvent(tx)
@@ -349,11 +385,19 @@ class SyncManager extends EventEmitter {
    */
   async _processUtxo (utxoList, inout, txState, txFee = 0, path) {
     const { _addr, keyManager, hdWallet, _totalBal, _unspent } = this
+    let addrObj
+
+    if (path) {
+      addrObj = keyManager.pathToScriptHash(path, P2WPKH)
+    }
     return Promise.all(utxoList.map(async (utxo) => {
       /** @type {Object} UTXO address balance */
       let bal = await _addr.get(utxo.address)
       /** @type {Object} HD wallet address info */
       let addr = await hdWallet.getAddress(utxo.address)
+
+      /** @desc flag for checking if utxo matches the HD PATH **/
+      utxo.own_addr = false
 
       if (!bal) {
         /** @desc Create new address record if balance doesn't exist */
@@ -363,23 +407,27 @@ class SyncManager extends EventEmitter {
 
       if (path && !addr) {
         /** @desc Derive address from path if not in HD wallet */
-        const addrObj = keyManager.pathToScriptHash(path, P2WPKH)
-        if (addrObj.addr.address !== utxo.address) return
+        if (addrObj.addr.address !== utxo.address) {
+          return utxo
+        }
         await hdWallet.addAddress(addrObj.addr)
         addr = await hdWallet.getAddress(addrObj.addr.address)
       }
 
-      if (!addr) return
+      if (!addr) {
+        return utxo
+      }
+      utxo.own_addr = true
 
       /** @type {string} Unique UTXO identifier */
       const point = inout === 'out' ? utxo.txid + ':' + utxo.index : utxo.prev_txid + ':' + utxo.prev_index
 
-      /** @desc Skip if already processed */
-      if (bal[inout].getTx(txState, point)) return
-
       /** @desc Set UTXO address info */
       utxo.address_public_key = addr.publicKey
       utxo.address_path = addr.path
+
+      /** @desc Skip if already processed */
+      if (bal[inout].getTx(txState, point)) return utxo
 
       /** @desc Mark point as processed */
       bal[inout].addTxid(txState, point, utxo.value)
@@ -395,16 +443,17 @@ class SyncManager extends EventEmitter {
       /** @desc Add to unspent store for future signings */
       await _unspent.add(utxo, inout)
       if (inout === 'out') {
-        this.emit('new-tx', {
-          address: utxo.address,
-          value: utxo.value,
-          txid: utxo.txid,
-          height: utxo.height,
-          address_path: utxo.address_path,
-          address_public_key: utxo.address_public_key,
-          state: txState
-        })
+        // this.emit('new-tx', {
+        //  address: utxo.address,
+        //  value: utxo.value,
+        //  txid: utxo.txid,
+        //  height: utxo.height,
+        //  address_path: utxo.address_path,
+        //  address_public_key: utxo.address_public_key,
+        //  state: txState
+        // })
       }
+      return utxo
     }))
   }
 

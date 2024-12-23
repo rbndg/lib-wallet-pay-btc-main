@@ -63,7 +63,7 @@ test.test('sendTransaction', { timeout: 600000 }, async function (t) {
       await regtest.mine(1)
 
       t.ok(fmtData.isValid, 'tx entry format is valid')
-      t.ok(fmtData.to_address === nodeAddr, 'formatted to address matches')
+      t.ok(fmtData.to_address.pop() === nodeAddr, 'formatted to address matches')
       t.ok(fmtData.from_address.length > 0, 'formatted from address exists')
       t.ok(new BitcoinCurrency(amount, 'main').eq(fmtData.amount) , 'formatted sent amount matches')
 
