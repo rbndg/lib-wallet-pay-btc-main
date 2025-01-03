@@ -140,7 +140,7 @@ class AddressManager {
   * @desc Get transaction history by block height
   */
   getTxHeight (height) {
-    return this.history.get('i:' + height)
+    return this.history.get('b:' + height)
   }
 
   /**
@@ -179,6 +179,7 @@ class AddressManager {
     await this.history.delete(`i:0:${tx.txid}}`, tx)
     await this.history.put(`i:${tx.height}:${tx.txid}`, tx)
     await this.history.put(`tx:${tx.txid}`, tx.height)
+    await this.history.put(`b:${tx.height}`, tx.txid)
   }
 
   getMempoolTx () {

@@ -187,12 +187,13 @@ class SyncManager extends EventEmitter {
       arr = arr.concat(z)
     }
 
+
     if (arr.length === 0) return
 
     let newTx
     try {
-      newTx = await Promise.all(arr.map(async (tx) => {
-        return await this.provider.getTransaction(tx.txid, { cache: false })
+      newTx = await Promise.all(arr.map(async (txid) => {
+        return await this.provider.getTransaction(txid, { cache: false })
       }))
     } catch (err) {
       console.log('failed to get tx ', err)
@@ -339,9 +340,6 @@ class SyncManager extends EventEmitter {
     }
     const total = await this._addr.get(addr)
     if (!total) throw new Error('Address not valid or not processed for balance ' + addr)
-    if(addr === "ebcrt1q8ypxfu653v32npt8rmajxq3pthu4s4uufdy8hy") {
-    console.log(2222232323, total.in.txid.confirmed, addr)
-    }
     return total.out.combine(total.in)
   }
 

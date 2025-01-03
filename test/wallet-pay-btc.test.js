@@ -210,7 +210,6 @@ test('getTransactions', async (t) => {
     const regtest = await regtestNode()
     t.comment('create new wallet')
     const btcPay = await activeWallet({ newWallet: true })
-    // const max = btcPay._syncManager._max_script_watch
 
     async function newTx (tx) {
       t.comment('checking balance transition between confirmed/pending/mempool', state, send)
@@ -321,7 +320,7 @@ test('syncing paths in order', async () => {
       let count = 0
       const prev = []
       let restartCheck = false
-      const handler = async (pt, path, hasTx, syncState) => {
+      const handler = async (pt, path) => {
         if (opts.restart && !restartCheck) {
           t.ok(path === btcPay._hdWallet.INIT_EXTERNAL_PATH, 'initial path is correct after restarting')
           restartCheck = true
@@ -359,7 +358,6 @@ test('syncTransaction - catch up missed tx', async (t) => {
   const regtest = await regtestNode()
   t.comment('new  wallet')
   await rmDataDir()
-  // New wallet, using hyperbee backend
   const btcPay = await activeWallet({ newWallet: true, tmpStore: true })
   await btcPay.syncTransactions()
   const seed = btcPay.keyManager.seed.exportSeed({ string: false })
@@ -427,7 +425,7 @@ test('getFundedTokenAddress', async (t) => {
   await btcPay.syncTransactions({ reset: true })
 })
 
-test.solo('getFundedTokenAddress. new wallet', async (t) => {
+test('getFundedTokenAddress. new wallet', async (t) => {
 
   const regtest = await regtestNode()
   t.comment('create new wallet')

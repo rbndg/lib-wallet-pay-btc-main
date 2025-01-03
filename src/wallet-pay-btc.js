@@ -64,9 +64,9 @@ class WalletPayBitcoin extends WalletPay {
    * @async
    */
   async _destroy () {
+    await this.pauseSync()
     await this.provider.close()
     await this._syncManager.close()
-    await this.pauseSync()
     await this.state.store.close()
     await this._hdWallet.close()
     await this.keyManager.close()
@@ -221,7 +221,7 @@ class WalletPayBitcoin extends WalletPay {
     const accts = {}
     const addrs = await this._hdWallet.getAllAddress()
     
-    const bal = await Promise.all(addrs.map(async (addr) => {
+    await Promise.all(addrs.map(async (addr) => {
       const bal = await this.getBalance({},addr)
       if(bal.consolidated.toNumber() > 0) {
         accts[addr] =  bal
