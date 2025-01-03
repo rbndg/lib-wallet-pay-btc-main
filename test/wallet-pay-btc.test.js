@@ -25,7 +25,6 @@ const {
   rmDataDir,
   pause
 } = require('./test-helpers.js')
-const { countNonPushOnlyOPs } = require('bitcoinjs-lib/src/script.js')
 
 test.configure({ timeout: 60000 })
 
@@ -206,7 +205,7 @@ test('getTransactions', async (t) => {
 });
 
 (async () => {
-  test.solo('balance check', async (tst) => {
+  test('balance check', async (tst) => {
     const t = tst.test('create address, send btc and check balance')
     const regtest = await regtestNode()
     t.comment('create new wallet')
@@ -410,7 +409,53 @@ test('syncTransaction - catch up missed tx', async (t) => {
   await bp.destroy()
 })
 
-test.solo('syncTransaction - balance check', async (t) => {
+test('getFundedTokenAddress', async (t) => {
+
+  const regtest = await regtestNode()
+  t.comment('create new wallet')
+  const btcPay = await activeWallet()
+
+  t.comment('syncing transactions')
+  btcPay.on('synced-path', async (pt, path, aa) => {
+    const { hash, addr } = btcPay.keyManager.pathToScriptHash(path, 'p2wpkh')
+    const eBal = await btcPay.provider._getBalance(hash)
+    const bals = await btcPay.getFundedTokenAddresses(addr.address)
+    if(eBal.confirmed > 0){
+      t.ok(eBal.confirmed === bals[addr.address]?.consolidated.toNumber(), `path balance matches electrum balance ${path}: ${eBal.confirmed}`)
+    }
+  })
+  await btcPay.syncTransactions({ reset: true })
+})
+
+test.solo('getFundedTokenAddress. new wallet', async (t) => {
+
+  const regtest = await regtestNode()
+  t.comment('create new wallet')
+  const btcPay = await activeWallet({ newWallet : true})
+
+  const send = []
+  for (let i = 0; i < 5 ; i++) {
+    const addr = await btcPay.getNewAddress()
+    const amount = +(Math.random() * 0.1).toFixed(5)
+    send.push([addr, amount])
+    t.comment(`sending : ${addr.address} - ${amount}`)
+    await regtest.sendToAddress({ address: addr.address, amount })
+  }
+  await regtest.mine(2)
+  await btcPay._onNewTx()
+  t.comment('syncing transactions')
+  await btcPay.syncTransactions({ reset: true })
+  const bals = await btcPay.getFundedTokenAddresses()
+  send.forEach((tx) => {
+    const addr = tx[0].address
+    const amt  = tx[1]
+    const bal = bals[addr]
+    t.ok(+bal.consolidated.toMainUnit() === amt, `balance ok ${addr}`)
+  })
+
+})
+
+test('syncTransaction - balance check', async (t) => {
   const regtest = await regtestNode()
   t.comment('create new wallet')
   const btcPay = await activeWallet({ newWallet: true })
@@ -450,7 +495,7 @@ test.solo('syncTransaction - balance check', async (t) => {
   await btcPay.syncTransactions({ restart: true })
 })
 
-test.solo('bip84 test vectors', async function (t) {
+test('bip84 test vectors', async function (t) {
   // LINK: https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki
   const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
   const km = new KeyManager({

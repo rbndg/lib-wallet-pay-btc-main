@@ -217,7 +217,8 @@ class SyncManager extends EventEmitter {
   async _processHistory (txHistory, path) {
     const { _addr } = this
 
-    txHistory = await Promise.all(txHistory.map(async (tx) => {
+    const newHistory = []
+    for( const tx of txHistory) {
       const txState = this._getTxState(tx)
       const outs = await this._processUtxo(tx.out, 'out', txState, tx.fee, path)
       const ins = await this._processUtxo(tx.in, 'in', txState, 0, path)
@@ -260,10 +261,10 @@ class SyncManager extends EventEmitter {
         await _addr.storeTx(entry)
         this.emit('new-tx', entry)
       }
-      return entry
-    }))
+      newHistory.push(entry)
+    }
 
-    txHistory.forEach((tx) => {
+    newHistory.forEach((tx) => {
       this._emitTxEvent(tx)
     })
   }
@@ -338,6 +339,9 @@ class SyncManager extends EventEmitter {
     }
     const total = await this._addr.get(addr)
     if (!total) throw new Error('Address not valid or not processed for balance ' + addr)
+    if(addr === "ebcrt1q8ypxfu653v32npt8rmajxq3pthu4s4uufdy8hy") {
+    console.log(2222232323, total.in.txid.confirmed, addr)
+    }
     return total.out.combine(total.in)
   }
 
@@ -390,9 +394,12 @@ class SyncManager extends EventEmitter {
     if (path) {
       addrObj = keyManager.pathToScriptHash(path, P2WPKH)
     }
-    return Promise.all(utxoList.map(async (utxo) => {
+    const res = []
+
+    for(const utxo of utxoList) {
       /** @type {Object} UTXO address balance */
       let bal = await _addr.get(utxo.address)
+
       /** @type {Object} HD wallet address info */
       let addr = await hdWallet.getAddress(utxo.address)
 
@@ -405,17 +412,21 @@ class SyncManager extends EventEmitter {
         bal = await _addr.get(utxo.address)
       }
 
+
+
       if (path && !addr) {
         /** @desc Derive address from path if not in HD wallet */
         if (addrObj.addr.address !== utxo.address) {
-          return utxo
+          res.push(utxo)
+          continue
         }
         await hdWallet.addAddress(addrObj.addr)
         addr = await hdWallet.getAddress(addrObj.addr.address)
       }
 
       if (!addr) {
-        return utxo
+        res.push(utxo)
+        continue
       }
       utxo.own_addr = true
 
@@ -427,7 +438,10 @@ class SyncManager extends EventEmitter {
       utxo.address_path = addr.path
 
       /** @desc Skip if already processed */
-      if (bal[inout].getTx(txState, point)) return utxo
+      if (bal[inout].getTx(txState, point)) {
+        res.push(utxo)
+        continue
+      }
 
       /** @desc Mark point as processed */
       bal[inout].addTxid(txState, point, utxo.value)
@@ -442,19 +456,9 @@ class SyncManager extends EventEmitter {
 
       /** @desc Add to unspent store for future signings */
       await _unspent.add(utxo, inout)
-      if (inout === 'out') {
-        // this.emit('new-tx', {
-        //  address: utxo.address,
-        //  value: utxo.value,
-        //  txid: utxo.txid,
-        //  height: utxo.height,
-        //  address_path: utxo.address_path,
-        //  address_public_key: utxo.address_public_key,
-        //  state: txState
-        // })
-      }
-      return utxo
-    }))
+      res.push(utxo)
+    }
+    return res
   }
 
   stopSync () {
