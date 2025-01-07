@@ -164,7 +164,7 @@ test('getNewAddress - address reuse logic', async (t) => {
   await btcPay2.destroy()
 })
 
-test('getTransactions', async (t) => {
+test.solo('getTransactions', async (t) => {
   const btcPay = await activeWallet()
 
   t.comment('syncing transactions')
@@ -174,6 +174,7 @@ test('getTransactions', async (t) => {
   const limit = 5
   const tx0 = await btcPay.getTransactions({ limit })
   t.ok(tx0.length === limit, 'tx length is same as limit')
+  console.log(tx0)
   tx0.forEach((tx) => {
     if (!last) {
       last = tx.height

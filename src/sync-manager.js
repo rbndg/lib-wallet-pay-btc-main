@@ -187,7 +187,6 @@ class SyncManager extends EventEmitter {
       arr = arr.concat(z)
     }
 
-
     if (arr.length === 0) return
 
     let newTx
@@ -219,7 +218,7 @@ class SyncManager extends EventEmitter {
     const { _addr } = this
 
     const newHistory = []
-    for( const tx of txHistory) {
+    for (const tx of txHistory) {
       const txState = this._getTxState(tx)
       const outs = await this._processUtxo(tx.out, 'out', txState, tx.fee, path)
       const ins = await this._processUtxo(tx.in, 'in', txState, 0, path)
@@ -394,7 +393,7 @@ class SyncManager extends EventEmitter {
     }
     const res = []
 
-    for(const utxo of utxoList) {
+    for (const utxo of utxoList) {
       /** @type {Object} UTXO address balance */
       let bal = await _addr.get(utxo.address)
 
@@ -409,8 +408,6 @@ class SyncManager extends EventEmitter {
         await _addr.newAddress(utxo.address)
         bal = await _addr.get(utxo.address)
       }
-
-
 
       if (path && !addr) {
         /** @desc Derive address from path if not in HD wallet */

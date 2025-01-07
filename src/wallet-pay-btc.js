@@ -174,7 +174,7 @@ class WalletPayBitcoin extends WalletPay {
 
   _onNewTx () {
     return new Promise((resolve) => {
-    this.once('new-tx', () => resolve())
+      this.once('new-tx', () => resolve())
     })
   }
 
@@ -211,7 +211,6 @@ class WalletPayBitcoin extends WalletPay {
     return this._syncManager.getTransactions(opts, fn)
   }
 
-
   /**
    * @description  get addresses and their balances
    * @param {object} opts
@@ -220,11 +219,11 @@ class WalletPayBitcoin extends WalletPay {
   async getFundedTokenAddresses (opts) {
     const accts = {}
     const addrs = await this._hdWallet.getAllAddress()
-    
+
     await Promise.all(addrs.map(async (addr) => {
-      const bal = await this.getBalance({},addr)
-      if(bal.consolidated.toNumber() > 0) {
-        accts[addr] =  bal
+      const bal = await this.getBalance({}, addr)
+      if (bal.consolidated.toNumber() > 0) {
+        accts[addr] = bal
       }
     }))
     return accts
