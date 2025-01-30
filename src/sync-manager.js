@@ -54,10 +54,10 @@ class SyncManager extends EventEmitter {
       state: this.state,
       provider: this.provider
     })
-    this._addrWatch.on('new-tx', async (changeHash) => {
+    this._addrWatch.on('new-tx', async (...args) => {
       if (this._halt) return
       try {
-        await this._updateScriptHashBalance(changeHash)
+        await this._updateScriptHashBalance(...args)
       } catch (err) {
         console.log('failed to update addr balance', err)
       }
@@ -105,15 +105,18 @@ class SyncManager extends EventEmitter {
     return this._addr.getSentTx(txid)
   }
 
-  async _updateScriptHashBalance (changeHash) {
+  async _updateScriptHashBalance (changeScriptHash, changeHash) {
     const { provider, _addrWatch } = this
     const { extlist, inlist } = await _addrWatch.getWatchedAddress()
 
     const process = async (data) => {
       await Promise.all(data.map(async ([scripthash, balHash]) => {
+        if (changeScriptHash !== scripthash) return
         if (changeHash === balHash) return
         if (this._halt) return
-        const txHistory = await provider.getAddressHistory({ cache: false }, scripthash)
+        const txHistory = await provider.getMempoolTx({
+          cache: false
+        }, scripthash)
         await this._processHistory(txHistory)
       }))
     }
@@ -130,10 +133,15 @@ class SyncManager extends EventEmitter {
   * @description watch address for changes and save to store for when lib is resumed
   **/
   async watchAddress ([scriptHash, addr], addrType) {
-    // @desc: create address balance object
-    await this._addr.newAddress(addr.address)
-    // @desc: start watching address balance changes
-    await this._addrWatch.watchAddress(scriptHash, addrType)
+    try {
+      // @desc: create address balance object
+      await this._addr.newAddress(addr.address)
+      // @desc: start watching address balance changes
+      await this._addrWatch.watchAddress(scriptHash, addrType)
+    } catch (err) {
+      console.log('failed to watch addr', err)
+      throw err
+    }
   }
 
   /**
@@ -179,19 +187,17 @@ class SyncManager extends EventEmitter {
     const { currentBlock } = this
 
     // Get all txs in block range.
-    // We don't get tx in mempool as those are handled in _handleScriptHashChange
-    let arr = []
+    let arr = await this._addr.getTxHeight(0)
     for (let i = currentBlock.last; i <= currentBlock.current; i++) {
       const z = await this._addr.getTxHeight(i)
       if (!z) continue
       arr = arr.concat(z)
     }
-
     if (arr.length === 0) return
 
     let newTx
     try {
-      newTx = await Promise.all(arr.map(async (txid) => {
+      newTx = await Promise.all(arr.map(async ({ txid }) => {
         return await this.provider.getTransaction(txid, { cache: false })
       }))
     } catch (err) {
@@ -200,11 +206,15 @@ class SyncManager extends EventEmitter {
     }
 
     try {
-      await this._processHistory(newTx)
+      newTx = await this._processHistory(newTx)
       await this._unspent.process()
     } catch (err) {
       console.log('failed to process block', err)
+      return
     }
+    newTx.forEach((entry) => {
+      this.emit('new-tx', entry)
+    })
   }
 
   /**
@@ -256,17 +266,17 @@ class SyncManager extends EventEmitter {
         direction
       })
 
-      const dbTxHeight = await _addr.getHeight(entry.txid)
-      if (!dbTxHeight || dbTxHeight === 0) {
-        await _addr.storeTx(entry)
+      if (entry.height === 0) {
         this.emit('new-tx', entry)
       }
+      await _addr.storeTx(entry)
       newHistory.push(entry)
     }
 
     newHistory.forEach((tx) => {
       this._emitTxEvent(tx)
     })
+    return newHistory
   }
 
   /**

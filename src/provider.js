@@ -130,8 +130,8 @@ class Electrum extends ConnectionManager {
       this.emit('new-block', height)
     })
 
-    this.on('blockchain.scripthash.subscribe', (data) => {
-      this.emit('new-tx', data)
+    this.on('blockchain.scripthash.subscribe', (...args) => {
+      this.emit('new-tx', ...args)
     })
   }
 
@@ -199,7 +199,7 @@ class Electrum extends ConnectionManager {
     }
 
     if (resp?.method?.includes('.subscribe')) {
-      this.emit(resp.method, resp.params.pop())
+      this.emit(resp.method, ...resp.params)
       this.requests.delete(resp?.id)
       return
     }
@@ -224,12 +224,17 @@ class Electrum extends ConnectionManager {
 
   async getAddressHistory (opts, scriptHash) {
     const history = await this._makeRequest('blockchain.scripthash.get_history', [scriptHash])
-    const txData = []
-    for (const index in history) {
-      const tx = history[index]
-      const td = await this.getTransaction(tx.tx_hash, opts)
-      txData.push(td)
-    }
+    const txData = await Promise.all(
+      history.map(tx => this.getTransaction(tx.tx_hash, opts))
+    )
+    return txData
+  }
+
+  async getMempoolTx (opts = {}, scriptHash) {
+    const history = await this._makeRequest('blockchain.scripthash.get_mempool', [scriptHash])
+    const txData = await Promise.all(
+      history.map(tx => this.getTransaction(tx.tx_hash, opts))
+    )
     return txData
   }
 

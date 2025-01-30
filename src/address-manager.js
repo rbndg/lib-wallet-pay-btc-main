@@ -139,32 +139,16 @@ class AddressManager {
   /**
   * @desc Get transaction history by block height
   */
-  getTxHeight (height) {
-    return this.history.get('b:' + height)
-  }
-
-  /**
-  * @desc Remove transaction from mempool store
-  *       Mempool transactions have 0 height.
-  *       When they are confirmed they must be removed to prevent duplicate tx being kept in store
-  * @param {String} txid - transaction id
-  */
-  async _removeFromMempool (txid) {
-    let mp = await this.history.get('i:' + 0) || []
-    let mpx = null
-
-    for (const x in mp) {
-      mpx = mp[x]
-      if (mpx.txid === txid) {
-        mp.splice(x, 1)
-        break
-      }
-    }
-    if (mp.length === 0) {
-      mp = null
-    }
-    await this.history.put('i:' + 0, mp)
-    return mpx
+  async getTxHeight (height) {
+    const prf = 'i:'
+    let results = []
+    await this.history.entries(async (key, value) => {
+      if (key.indexOf(prf) !== 0 || !value) return
+      const h = key.split(':')[1]
+      if (+h !== height) return
+      results = results.concat(value)
+    }, { gt: prf + height, lt: `${prf}${height + 1}` }, {})
+    return results
   }
 
   _getDbTx (txid) {
@@ -172,14 +156,13 @@ class AddressManager {
   }
 
   async getHeight (txid) {
-    return this.history.get(`tx:${txid}}`)
+    return this.history.get(`tx:${txid}`)
   }
 
   async storeTx (tx) {
     await this.history.delete(`i:0:${tx.txid}}`, tx)
     await this.history.put(`i:${tx.height}:${tx.txid}`, tx)
     await this.history.put(`tx:${tx.txid}`, tx.height)
-    await this.history.put(`b:${tx.height}`, tx.txid)
   }
 
   getMempoolTx () {

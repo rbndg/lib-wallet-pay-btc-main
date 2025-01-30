@@ -46,7 +46,7 @@ class TotalBalance {
         }
       }
     } catch (error) {
-      console.error('Failed to initialize BalanceManager:', error)
+      console.error('Failed to initialize Balances:', error)
       throw error
     }
   }
