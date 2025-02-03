@@ -117,7 +117,7 @@ class Electrum extends ConnectionManager {
     this.cache = new RequestCache({ store: config.store.newInstance({ name: 'electrum-cache' }) })
     this.block_height = 0
     this._max_cache_size = 10
-    this._setEndpoints({
+    this._setEndpoint({
       port: this.port,
       host: this.host,
     })
