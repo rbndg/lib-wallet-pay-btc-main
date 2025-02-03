@@ -56,7 +56,7 @@ class RequestCache {
 
   _startCacheTimer () {
     this._timer = setInterval(() => {
-      this.store.entries(async (k, [value, exp]) => {
+      this.store.entries(async (k, [_, exp]) => {
         if (Date.now() >= exp) return await this.store.delete(k)
       })
     }, this._cache_interval)
@@ -117,6 +117,10 @@ class Electrum extends ConnectionManager {
     this.cache = new RequestCache({ store: config.store.newInstance({ name: 'electrum-cache' }) })
     this.block_height = 0
     this._max_cache_size = 10
+    this._setEndpoints({
+      port: this.port,
+      host: this.host,
+    })
   }
 
   static OutTypes = {
