@@ -164,7 +164,7 @@ test('getNewAddress - address reuse logic', async (t) => {
   await btcPay2.destroy()
 })
 
-test.solo('getTransactions', async (t) => {
+test('getTransactions', async (t) => {
   const btcPay = await activeWallet()
 
   t.comment('syncing transactions')
@@ -174,7 +174,6 @@ test.solo('getTransactions', async (t) => {
   const limit = 5
   const tx0 = await btcPay.getTransactions({ limit })
   t.ok(tx0.length === limit, 'tx length is same as limit')
-  console.log(tx0)
   tx0.forEach((tx) => {
     if (!last) {
       last = tx.height
@@ -213,7 +212,7 @@ test.solo('getTransactions', async (t) => {
     const btcPay = await activeWallet({ newWallet: true })
 
     async function newTx (tx) {
-      t.comment('checking balance transition between confirmed/pending/mempool', state, send)
+      t.comment('checking balance transition between confirmed/pending/mempool: ', state, send)
       for (const key in send) {
         const addr = key
         const amount = send[key]
@@ -369,7 +368,6 @@ test('syncTransaction - catch up missed tx', async (t) => {
   const sendAmt = new BitcoinCurrency(amount, 'main')
   t.comment('generate address and send btc')
   await regtest.sendToAddress({ address: payAddr.address, amount })
-  await regtest.mine(2)
   t.comment('waiting for tx to be detected')
   await btcPay._onNewTx()
   const bal1 = await btcPay.getBalance({})
@@ -380,8 +378,6 @@ test('syncTransaction - catch up missed tx', async (t) => {
   t.comment('sending btc' + payAddr2.path)
   await regtest.sendToAddress({ address: payAddr2.address, amount })
   await regtest.mine(2)
-
-  await pause(10000)
   t.comment('create new instance with same seed')
   const bp = await activeWallet({ newWallet: false, phrase: seed.mnemonic, tmpStore: true })
   const bpseed = bp.keyManager.seed.exportSeed({ string: false })
@@ -415,7 +411,7 @@ test('getFundedTokenAddress', async (t) => {
   const btcPay = await activeWallet()
 
   t.comment('syncing transactions')
-  btcPay.on('synced-path', async (pt, path, aa) => {
+  btcPay.on('synced-path', async (pt, path) => {
     const { hash, addr } = btcPay.keyManager.pathToScriptHash(path, 'p2wpkh')
     const eBal = await btcPay.provider._getBalance(hash)
     const bals = await btcPay.getFundedTokenAddresses(addr.address)
@@ -440,8 +436,9 @@ test('getFundedTokenAddress. new wallet', async (t) => {
     t.comment(`sending : ${addr.address} - ${amount}`)
     await regtest.sendToAddress({ address: addr.address, amount })
   }
-  await regtest.mine(2)
+  t.comment('mining')
   await btcPay._onNewTx()
+  await regtest.mine(1)
   t.comment('syncing transactions')
   await btcPay.syncTransactions({ reset: true })
   const bals = await btcPay.getFundedTokenAddresses()
@@ -449,7 +446,7 @@ test('getFundedTokenAddress. new wallet', async (t) => {
     const addr = tx[0].address
     const amt  = tx[1]
     const bal = bals[addr]
-    t.ok(+bal.consolidated.toMainUnit() === amt, `balance ok ${addr}`)
+    t.ok(+bal.pending.toMainUnit() === amt, `balance ok ${addr}`)
   })
 
 })
@@ -465,8 +462,6 @@ test('syncTransaction - balance check', async (t) => {
   await regtest.sendToAddress({ address: payAddr.address, amount })
   t.comment('mining blocks')
   await regtest.mine(2)
-  t.comment('waiting for electrum to update')
-  await btcPay._onNewTx()
   let checked = false
   async function checkBal (pt, path, hasTx, gapCount) {
     if (checked) return

@@ -60,8 +60,6 @@ test.test('sendTransaction', { timeout: 600000 }, async function (t) {
       const sentData  = await sendTx(btcPay, data)
       const res = sentData.attempt
       const fmtData = sentData.sent
-      await regtest.mine(1)
-
       t.ok(fmtData.isValid, 'tx entry format is valid')
       t.ok(fmtData.to_address.pop() === nodeAddr, 'formatted to address matches')
       t.ok(fmtData.from_address.length > 0, 'formatted from address exists')
@@ -96,6 +94,8 @@ test.test('sendTransaction', { timeout: 600000 }, async function (t) {
     for (const amount of amounts) {
       await send(amount, c)
       await pause(5000)
+      regtest.mine(1)
+      
       c++
     }
     await btcPay.destroy()
@@ -115,11 +115,17 @@ test.test('fund new wallet and spend from it. check balances, confirmations', { 
   const { result: utxo2 } = await regtest.sendToAddress({ address: addr.address, amount: 0.1 })
   t.comment('waiting for confirmation')
   await btcPay._onNewTx()
+  let balance = await btcPay.getBalance()
+  t.ok(balance.mempool.toNumber() === 10000000, 'mempool balance is increased')
+  await btcPay._onNewTx()
+  balance = await btcPay.getBalance()
+  t.ok(balance.mempool.toNumber() === 20000000, 'mempool balance is increased')
+  const zz = await btcPay._syncManager._addr.getTxHeight(0)
+  await regtest.mine(1)
   await regtest.mine(1)
   await btcPay._onNewTx()
-  await regtest.mine(1)
-  await btcPay._onNewTx()
-  const balance = await btcPay.getBalance()
+
+  balance = await btcPay.getBalance()
   t.ok(balance.confirmed.toNumber() === 20000000, 'balance added by 0.2 btc')
   const data = {
     amount: 0.1,
@@ -140,11 +146,9 @@ test.test('fund new wallet and spend from it. check balances, confirmations', { 
   t.ok(bb.mempool.toNumber() === spentAmount, 'mempool balance is negative of totalSpent')
   t.ok(bb.pending.toNumber() === 0, 'pending balance is 0')
   t.ok(bb.confirmed.toNumber() === totalBal, 'confirmed  balance is 0.2')
-  console.log(bb)
   await btcPay._onNewTx()
   await pause(5000)
   bb = await btcPay.getBalance()
-  console.log(bb)
   t.ok(bb.mempool.toNumber() === 0, 'mempool balance is 0')
   t.ok(bb.pending.toNumber() === spentAmount, 'pending balance is negative of totalSpent')
   t.ok(bb.confirmed.toNumber() === totalBal, 'confirmed balance is 0.2')
@@ -201,7 +205,7 @@ test.test('Spending whole UTXO for amount, not enough to pay for fees', { timeou
   t.fail('should have thrown error')
 })
 
-test.test('perform 2 transactions from 1 utxo before confirmation. Spending from change address', { timeout: 600000 }, async function (t) {
+test.solo('perform 2 transactions from 1 utxo before confirmation. Spending from change address', { timeout: 600000 }, async function (t) {
   // We create a new wallet, send 2 utxo. we attempt to spend 1 whole utxo with amount
   // In order to pay for the fee, we must utilise the second utxo to pay for fees
   const regtest = await regtestNode()
