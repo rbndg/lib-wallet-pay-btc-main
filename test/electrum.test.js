@@ -42,6 +42,27 @@ test('electrum', function (t) {
   t.end()
 
 })
+
+test('provider updateEndpoint', async (t) => {
+  const e = await newElectrum({
+    store: new WalletStoreMemory({})
+  })
+
+  t.plan(1)
+  let c = -1
+  const exp = {
+    host: 'localhost',
+    port: '9999'
+  }
+  e.on('status', async  (data) => {
+    c++
+    const ep = await e.getProviderEndpoint()
+    t.alike(ep, exp, 'updated endpoint  reconnection')
+  })
+  await e.updateEndpoint(exp).catch(() => { console.log(1)})
+
+})
+
 test('provider  reconnection' , async  (t)  => {
   const e = await newElectrum({
     store: new WalletStoreMemory({})
