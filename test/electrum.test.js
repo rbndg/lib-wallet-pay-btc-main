@@ -40,7 +40,6 @@ test('electrum', function (t) {
     await e.close()
   })
   t.end()
-
 })
 
 test('provider updateEndpoint', async (t) => {
@@ -54,48 +53,44 @@ test('provider updateEndpoint', async (t) => {
     host: 'localhost',
     port: '9999'
   }
-  e.on('status', async  (data) => {
+  e.on('status', async (_) => {
     c++
     const ep = await e.getProviderEndpoint()
     t.alike(ep, exp, 'updated endpoint  reconnection')
   })
-  await e.updateEndpoint(exp).catch(() => { console.log(1)})
-
+  await e.updateEndpoint(exp).catch(() => { console.log(1) })
 })
 
-test('provider  reconnection' , async  (t)  => {
+test('provider  reconnection', async (t) => {
   const e = await newElectrum({
     store: new WalletStoreMemory({})
   })
 
   t.plan(8)
   let c = -1
-  e.on('status', async  (data) => {
+  e.on('status', async (data) => {
     c++
-    if(c  === 0){
+    if (c === 0) {
       t.ok(data.prevStatus.code === 2, 'prev status is connected')
       t.ok(data.newStatus.code === 0, 'new status is disconnected')
-      return 
+      return
     }
-    if(c  === 1){
+    if (c === 1) {
       t.ok(data.prevStatus.code === 0, 'prev status is disconnected ')
       t.ok(data.newStatus.code === 1, 'new status is connecting')
-      return 
+      return
     }
-    if(c  === 2){
+    if (c === 2) {
       t.ok(data.prevStatus.code === 1, 'prev status is connecting ')
       t.ok(data.newStatus.code === 2, 'new status is connected')
       await e.close()
-      return 
+      return
     }
-    if(c  === 3){
+    if (c === 3) {
       t.ok(data.prevStatus.code === 2, 'prev status is connected ')
       t.ok(data.newStatus.code === 5, 'new status is destroyed')
     }
-
   })
 
   await e.reconnect()
-
-
 })

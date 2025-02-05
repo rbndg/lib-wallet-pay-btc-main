@@ -119,7 +119,7 @@ class Electrum extends ConnectionManager {
     this._max_cache_size = 10
     this._setEndpoint({
       port: this.port,
-      host: this.host,
+      host: this.host
     })
   }
 

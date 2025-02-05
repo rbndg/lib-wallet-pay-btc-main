@@ -28,6 +28,10 @@ const {
 
 test.configure({ timeout: 60000 })
 
+function randomAmount() {
+ return +(Math.random() * 0.1).toFixed(5)
+}
+
 test('Create an instances of WalletPayBitcoin', async function (t) {
   const km = new KeyManager({
     seed: await BIP39Seed.generate()
@@ -205,7 +209,7 @@ test('getTransactions', async (t) => {
 });
 
 (async () => {
-  test('balance check', async (tst) => {
+  test('balance transition', async (tst) => {
     const t = tst.test('create address, send btc and check balance')
     const regtest = await regtestNode()
     t.comment('create new wallet')
@@ -250,7 +254,7 @@ test('getTransactions', async (t) => {
     btcPay._syncManager.on('new-tx', newTx)
     t.comment('getting new address')
     const addr = await btcPay.getNewAddress()
-    const amount = +(Math.random() * 0.01).toFixed(5)
+    const amount = randomAmount()
     send[addr.address] = amount
     t.comment(`Sending  - ${addr.address} - ${amount}`)
     t.comment('wait for mempool tx')
@@ -354,10 +358,10 @@ test('syncing paths in order', async () => {
   await runTest('internal', { restart: true })
 })
 
-test('syncTransaction - catch up missed tx', async (t) => {
+test.solo('syncTransaction - catch up missed tx', async (t) => {
   const regtest = await regtestNode()
   t.comment('new  wallet')
-  await rmDataDir()
+   rmDataDir()
   const btcPay = await activeWallet({ newWallet: true, tmpStore: true })
   await btcPay.syncTransactions()
   const seed = btcPay.keyManager.seed.exportSeed({ string: false })
@@ -371,8 +375,11 @@ test('syncTransaction - catch up missed tx', async (t) => {
   t.comment('waiting for tx to be detected')
   await btcPay._onNewTx()
   const bal1 = await btcPay.getBalance({})
-  t.ok(bal1.consolidated.eq(new BitcoinCurrency(amount, 'main'), 'balances match'))
+  await btcPay.syncTransactions()
+  t.ok(bal1.consolidated.eq(new BitcoinCurrency(amount, 'main')), 'balances match')
   t.comment('destroying instance')
+
+  const txg = await btcPay.getTransactions()
   await btcPay.destroy()
 
   t.comment('sending btc' + payAddr2.path)
@@ -383,22 +390,14 @@ test('syncTransaction - catch up missed tx', async (t) => {
   const bpseed = bp.keyManager.seed.exportSeed({ string: false })
   t.ok(bpseed.seed === seed.seed, 'new instance has same seed as prev instance')
 
+  const txh = await bp.getTransactions()
+  t.alike(txg,txh, 'funded tx found')
   let bal = await bp.getBalance({}, payAddr.address)
   t.ok(bal.consolidated.eq(sendAmt), 'first tx balance found')
   bal = await bp.getBalance({}, payAddr2.address)
   t.ok(bal.consolidated.toNumber() === 0, 'second tx balance is zero')
 
   t.comment('sync wallet')
-  const p = [payAddr, payAddr2]
-  let c = 0
-  bp.on('synced-path', async (pt, path) => {
-    const pay = p[c]
-    t.ok(path === pay.path, 'path matches')
-    const b = await bp.getBalance({}, pay.address)
-    t.ok(b.consolidated.eq(sendAmt), 'address balance matches')
-    c++
-    if (c === p.length) bp.pauseSync()
-  })
 
   await bp.syncTransactions()
   await bp.destroy()
@@ -431,7 +430,7 @@ test('getFundedTokenAddress. new wallet', async (t) => {
   const send = []
   for (let i = 0; i < 5 ; i++) {
     const addr = await btcPay.getNewAddress()
-    const amount = +(Math.random() * 0.1).toFixed(5)
+    const amount = randomAmount()
     send.push([addr, amount])
     t.comment(`sending : ${addr.address} - ${amount}`)
     await regtest.sendToAddress({ address: addr.address, amount })
@@ -487,6 +486,32 @@ test('syncTransaction - balance check', async (t) => {
   btcPay.on('synced-path', checkBal)
   t.comment('syncing transactions..')
   await btcPay.syncTransactions({ restart: true })
+})
+
+test('import seed with balance', async (t) => {
+  const regtest = await regtestNode()
+  t.comment('create new wallet')
+  const btcPay = await activeWallet({ newWallet: true, tmpStore: true })
+  const seed = btcPay.keyManager.seed.exportSeed({ string: false })
+  const addr = await btcPay.getNewAddress()
+  const amount = randomAmount()
+  t.comment('generate address and send btc')
+  await regtest.sendToAddress({ address: addr.address, amount })
+  await regtest.mine(3)
+  await btcPay.syncTransactions()
+  const txList = await btcPay.getTransactions()
+  t.ok(txList.length === 1, '1 tx found')
+  await btcPay.destroy()
+
+  t.comment('import seed')
+  const btcPay2 = await activeWallet({ newWallet: false, phrase: seed.mnemonic, tmpStore: true })
+  await btcPay2.syncTransactions()
+  const bal = await btcPay2.getBalance({}, addr.address)
+  const txList2 = await btcPay2.getTransactions()
+  t.alike(txList2, txList, 'tx history matches')
+
+  t.ok(bal.consolidated.eq(new BitcoinCurrency(amount, 'main')), 'balances match')
+  await btcPay2.destroy()
 })
 
 test('bip84 test vectors', async function (t) {

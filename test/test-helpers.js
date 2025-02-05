@@ -99,7 +99,7 @@ function promiseSteps (arr) {
   return pass
 }
 
-async function rmDataDir () {
+function rmDataDir () {
   fs.rmSync(_datadir, { recursive: true, force: true })
 }
 
