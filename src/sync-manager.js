@@ -237,33 +237,47 @@ class SyncManager extends EventEmitter {
         tx.mempool_ts = Date.now()
       }
 
-      const totalOutput = outs.reduce((sum, d) => {
-        if (!d.own_addr) return sum
-        return sum.add(d.value)
-      }, new Bitcoin(0, 'main'))
-
       const ownOuts = outs.filter((out) => out.own_addr)
       const ownIns = ins.filter((ins) => ins.own_addr)
 
       let direction
-      if (ownOuts.length === tx.out && ownIns.length === tx.in) {
+      if (ownOuts.length === tx.out.length && ownIns.length === tx.in.length) {
         direction = TxEntry.INTERNAL
-      } else if (ownIns.length === 0 && ownOuts.length > 0) {
+      } else if (ownIns.length === 0) {
         direction = TxEntry.INCOMING
-      } else if (ownIns.length > 0) {
+      } else if (ownOuts.length > 0) {
         direction = TxEntry.OUTGOING
       } else {
         direction = TxEntry.UNKNOWN
       }
 
+      const totalOutput = outs.reduce((sum, d) => {
+        if((direction === TxEntry.INCOMING || direction === TxEntry.INTERNAL) && d.own_addr) {
+          return sum.add(d.value)
+        }
+
+        if(direction === TxEntry.OUTGOING && !d.own_addr) {
+          return sum.add(d.value)
+        }
+        return sum
+
+      }, new Bitcoin(0, 'main'))
+
+
+
       const entry = new TxEntry({
         txid: tx.txid,
-        from_address: tx.out.map(({ address }) => address),
-        to_address: tx.in.map(({ address }) => address),
+        from_address: tx.in.map(({ address }) => address),
+        to_address: tx.out.map(({ address }) => address),
         fee: tx.fee,
         amount: totalOutput,
         height: tx.height,
-        direction
+        direction,
+        to_address_meta: outs.map((out) => {
+          return {
+            amount : out.value, own_address: out.own_addr
+          }
+        })
       })
 
       if (entry.height === 0) {

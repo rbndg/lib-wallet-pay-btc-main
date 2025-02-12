@@ -131,10 +131,9 @@ class Transaction extends EventEmitter {
 
     return new WalletPay.TxEntry({
       txid: sentTx.txid,
-      to_address: address,
+      to_address: psbt.txOutputs.map(({address}) => address ),
       fee: sentTx.fee,
       fee_rate: sentTx.feeRate,
-      total_amount: sentTx.totalSpent,
       amount: sendAmount,
       from_address: utxo.map(({ address }) => address),
       direction: WalletPay.TxEntry.OUTGOING

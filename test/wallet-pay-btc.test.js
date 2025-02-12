@@ -29,7 +29,7 @@ const {
 test.configure({ timeout: 60000 })
 
 function randomAmount() {
- return +(Math.random() * 0.1).toFixed(5)
+ return +(Math.random()).toFixed(5)
 }
 
 test('Create an instances of WalletPayBitcoin', async function (t) {
@@ -208,6 +208,64 @@ test('getTransactions', async (t) => {
   await btcPay.destroy()
 });
 
+
+test('getTransaction - outgoing, incoming and internal tx', async (t) => {
+  const regtest = await regtestNode()
+  const btcPay = await activeWallet({ newWallet: true })
+
+  const addr1 = await btcPay.getNewAddress()
+  const addrInt = await btcPay.getNewAddress()
+  const { result: addr2} = await regtest.getNewAddress()
+  const amount = 0.9
+
+  //Incoming Transaction
+  await regtest.sendToAddress({ address: addr1.address, amount })
+  await regtest.mine(1)
+  await pause(1000)
+  await btcPay.syncTransactions()
+  const incomingTx = (await btcPay.getTransactions({  }))[0]
+  t.ok(incomingTx.isIncoming(), 'Incoming transaction direction is correct')
+  t.ok(new BitcoinCurrency(incomingTx.amount).eq(new BitcoinCurrency(amount, 'main')), 'Incoming transaction amount is correct')
+
+  ////Outgoing Transaction
+  const outgoingAmount = 0.109
+  const outgoingTx = await btcPay.sendTransaction({}, { address: addr2, amount: outgoingAmount, unit: 'main', fee: 1 })
+  await pause(3000)
+  await regtest.mine(1)
+  await btcPay.syncTransactions()
+  const outgoingTxEntry = (await btcPay.getTransactions({ })).filter((tx) => tx.txid === outgoingTx.txid)[0]
+  t.ok(outgoingTxEntry.isOutgoing(), 'Outgoing transaction direction is correct')
+  t.ok(new BitcoinCurrency(outgoingTxEntry.amount).eq(new BitcoinCurrency(outgoingAmount, 'main')), 'Outgoing transaction amount is correct')
+
+  //Internal Transaction 
+  const internalAmount = 0.103
+  const internalTx = await btcPay.sendTransaction({}, { address: addrInt.address, amount: internalAmount, unit: 'main', fee: 2 })
+  await regtest.mine(1)
+  await btcPay.syncTransactions()
+  await pause(3000)
+  const internalTxEntry = (await btcPay.getTransactions({ })).filter((tx) => tx.txid === internalTx.txid)[0]
+
+  t.ok(internalTxEntry.isInternal(), 'Internal transaction direction is correct')
+  const internalSend = internalTxEntry.to_address_meta.filter((out) => {
+    return new BitcoinCurrency(out.amount).eq(new BitcoinCurrency(internalAmount, 'main'))
+  })
+  t.ok(internalSend.length === 1, 'internal amount is correct')
+
+  const dbtx = await btcPay.getTransactions({ })
+  const seen = new Set();
+
+  for (const item of dbtx) {
+    if (seen.has(item.txid)) {
+      t.fail('duplicate found')
+      return true;
+    }
+    seen.add(item.txid);
+  }
+  t.ok(true, 'duplicates not found in db')
+
+  await btcPay.destroy()
+});
+
 (async () => {
   test('balance transition', async (tst) => {
     const t = tst.test('create address, send btc and check balance')
@@ -358,7 +416,7 @@ test('syncing paths in order', async () => {
   await runTest('internal', { restart: true })
 })
 
-test.solo('syncTransaction - catch up missed tx', async (t) => {
+test('syncTransaction - catch up missed tx', async (t) => {
   const regtest = await regtestNode()
   t.comment('new  wallet')
    rmDataDir()

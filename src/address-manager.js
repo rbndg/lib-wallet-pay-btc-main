@@ -14,6 +14,8 @@
 
 'use strict'
 const Bitcoin = require('./currency')
+const { WalletPay } = require('lib-wallet')
+const TxEntry = WalletPay.TxEntry
 
 class Balance {
   constructor (confirmed, pending, mempool, txid) {
@@ -161,6 +163,7 @@ class AddressManager {
 
   async storeTx (tx) {
     await this.history.delete(`i:0:${tx.txid}`, tx)
+    await this.history.delete(`i:${tx.height-1}:${tx.txid}`, tx)
     await this.history.put(`i:${tx.height}:${tx.txid}`, tx)
     await this.history.put(`tx:${tx.txid}`, tx.height)
   }
@@ -187,7 +190,7 @@ class AddressManager {
       }
       if (results.length >= limit) return
       if (key.indexOf('i:') !== 0 || !value) return
-      results = results.concat(value)
+      results = results.concat(new TxEntry(value))
     }, { gt: 'i:0', lt: `i:${'9'.repeat(1000000)}`, reverse: !opts.reverse })
     return results
   }
