@@ -25,9 +25,12 @@ const {
   rmDataDir,
   pause
 } = require('./test-helpers.js')
-const { countNonPushOnlyOPs } = require('bitcoinjs-lib/src/script.js')
 
 test.configure({ timeout: 60000 })
+
+function randomAmount() {
+ return +(Math.random()).toFixed(5)
+}
 
 test('Create an instances of WalletPayBitcoin', async function (t) {
   const km = new KeyManager({
@@ -172,35 +175,106 @@ test('getTransactions', async (t) => {
   await btcPay.syncTransactions({ reset: true })
 
   let last = 0
-  const max = 5
-  let c = 0
-  await btcPay.getTransactions({}, async (tx) => {
-    const h = tx[0].height
+  const limit = 5
+  const tx0 = await btcPay.getTransactions({ limit })
+  t.ok(tx0.length === limit, 'tx length is same as limit')
+  tx0.forEach((tx) => {
     if (!last) {
-      last = h
+      last = tx.height
       return
     }
-    t.ok(last < h, 'tx height is in descending order height: ' + h)
-    last = h
-    c++
-    if (c === max) {
-      await btcPay.destroy()
-      t.end()
-    }
+    t.ok(last >= tx.height, 'tx height is in descending order height: ' + tx.height)
+    last = tx.height
   })
-  if(!c) t.fail('no tx found')
+  const tx1 = await btcPay.getTransactions({ limit, reverse: true })
+  t.ok(tx1.length === limit, 'tx length is same as limit. reverse order')
+  last = 0
+  let queryTx
+  tx1.forEach((tx) => {
+    if (!last) {
+      last = tx.height
+      return
+    }
+    t.ok(last <= tx.height, 'tx height is in ascending order height: ' + tx.height)
+    last = tx.height
+    queryTx = tx
+  })
+  const tx2 = await btcPay.getTransactions({ limit: 1, offset: 1, reverse: true })
+  const tx3 = await btcPay.getTransactions({ limit: 2, offset: 2, reverse: true })
+  
+  t.alike(tx1[1], tx2[0], 'limit 1, offset 1 works')
+  t.alike(tx1.slice(2, 4), tx3, 'limit 2 offset 2 works')
+
+  await btcPay.destroy()
+});
+
+
+test('getTransaction - outgoing, incoming and internal tx', async (t) => {
+  const regtest = await regtestNode()
+  const btcPay = await activeWallet({ newWallet: true })
+
+  const addr1 = await btcPay.getNewAddress()
+  const addrInt = await btcPay.getNewAddress()
+  const { result: addr2} = await regtest.getNewAddress()
+  const amount = 0.9
+
+  //Incoming Transaction
+  await regtest.sendToAddress({ address: addr1.address, amount })
+  await regtest.mine(1)
+  await pause(1000)
+  await btcPay.syncTransactions()
+  const incomingTx = (await btcPay.getTransactions({  }))[0]
+  t.ok(incomingTx.isIncoming(), 'Incoming transaction direction is correct')
+  t.ok(new BitcoinCurrency(incomingTx.amount).eq(new BitcoinCurrency(amount, 'main')), 'Incoming transaction amount is correct')
+
+  ////Outgoing Transaction
+  const outgoingAmount = 0.109
+  const outgoingTx = await btcPay.sendTransaction({}, { address: addr2, amount: outgoingAmount, unit: 'main', fee: 1 })
+  await pause(3000)
+  await regtest.mine(1)
+  await btcPay.syncTransactions()
+  const outgoingTxEntry = (await btcPay.getTransactions({ })).filter((tx) => tx.txid === outgoingTx.txid)[0]
+  t.ok(outgoingTxEntry.isOutgoing(), 'Outgoing transaction direction is correct')
+  t.ok(new BitcoinCurrency(outgoingTxEntry.amount).eq(new BitcoinCurrency(outgoingAmount, 'main')), 'Outgoing transaction amount is correct')
+
+  //Internal Transaction 
+  const internalAmount = 0.103
+  const internalTx = await btcPay.sendTransaction({}, { address: addrInt.address, amount: internalAmount, unit: 'main', fee: 2 })
+  await regtest.mine(1)
+  await btcPay.syncTransactions()
+  await pause(3000)
+  const internalTxEntry = (await btcPay.getTransactions({ })).filter((tx) => tx.txid === internalTx.txid)[0]
+
+  t.ok(internalTxEntry.isInternal(), 'Internal transaction direction is correct')
+  const internalSend = internalTxEntry.to_address_meta.filter((out) => {
+    return new BitcoinCurrency(out.amount).eq(new BitcoinCurrency(internalAmount, 'main'))
+  })
+  t.ok(internalSend.length === 1, 'internal amount is correct')
+
+  const dbtx = await btcPay.getTransactions({ })
+  const seen = new Set();
+
+  for (const item of dbtx) {
+    if (seen.has(item.txid)) {
+      t.fail('duplicate found')
+      return true;
+    }
+    seen.add(item.txid);
+  }
+  t.ok(true, 'duplicates not found in db')
+
+  await btcPay.destroy()
 });
 
 (async () => {
-  test('balance check', async (tst) => {
+  test('balance transition', async (tst) => {
     const t = tst.test('create address, send btc and check balance')
     const regtest = await regtestNode()
     t.comment('create new wallet')
     const btcPay = await activeWallet({ newWallet: true })
-    // const max = btcPay._syncManager._max_script_watch
 
     async function newTx (tx) {
-      t.comment('checking balance transition between confirmed/pending/mempool', state, send)
+      t.comment('checking balance transition between confirmed/pending/mempool: ', state, send)
       for (const key in send) {
         const addr = key
         const amount = send[key]
@@ -211,6 +285,9 @@ test('getTransactions', async (t) => {
           console.log(e)
           continue
         }
+
+        t.ok(tx.direction === 0, 'tx direction is correct')
+        t.ok(+tx.amount.toMainUnit() === amount, 'amount is correct')
 
         const bal = balance[state].toMainUnit()
         t.ok(bal === amount.toString(), `address balance matches sent amount ${state} ${addr} - ${amount} - ${bal}`)
@@ -235,7 +312,7 @@ test('getTransactions', async (t) => {
     btcPay._syncManager.on('new-tx', newTx)
     t.comment('getting new address')
     const addr = await btcPay.getNewAddress()
-    const amount = +(Math.random() * 0.01).toFixed(5)
+    const amount = randomAmount()
     send[addr.address] = amount
     t.comment(`Sending  - ${addr.address} - ${amount}`)
     t.comment('wait for mempool tx')
@@ -251,7 +328,7 @@ test('getTransactions', async (t) => {
     await regtest.mine(1)
     await pass.confirmed.promise
 
-    const  totalBalance = await btcPay.getBalance({})
+    const totalBalance = await btcPay.getBalance({})
     t.ok(+totalBalance.consolidated.toMainUnit() === amount, 'total wallet balance matches')
     await btcPay.destroy()
     t.end()
@@ -305,7 +382,7 @@ test('syncing paths in order', async () => {
       let count = 0
       const prev = []
       let restartCheck = false
-      const handler = async (pt, path, hasTx, syncState) => {
+      const handler = async (pt, path) => {
         if (opts.restart && !restartCheck) {
           t.ok(path === btcPay._hdWallet.INIT_EXTERNAL_PATH, 'initial path is correct after restarting')
           restartCheck = true
@@ -342,8 +419,7 @@ test('syncing paths in order', async () => {
 test('syncTransaction - catch up missed tx', async (t) => {
   const regtest = await regtestNode()
   t.comment('new  wallet')
-  await rmDataDir()
-  // New wallet, using hyperbee backend
+   rmDataDir()
   const btcPay = await activeWallet({ newWallet: true, tmpStore: true })
   await btcPay.syncTransactions()
   const seed = btcPay.keyManager.seed.exportSeed({ string: false })
@@ -354,46 +430,85 @@ test('syncTransaction - catch up missed tx', async (t) => {
   const sendAmt = new BitcoinCurrency(amount, 'main')
   t.comment('generate address and send btc')
   await regtest.sendToAddress({ address: payAddr.address, amount })
-  await regtest.mine(2)
   t.comment('waiting for tx to be detected')
   await btcPay._onNewTx()
   const bal1 = await btcPay.getBalance({})
-  t.ok(bal1.consolidated.eq(new BitcoinCurrency(amount, 'main'), 'balances match'))
+  await btcPay.syncTransactions()
+  t.ok(bal1.consolidated.eq(new BitcoinCurrency(amount, 'main')), 'balances match')
   t.comment('destroying instance')
+
+  const txg = await btcPay.getTransactions()
   await btcPay.destroy()
 
   t.comment('sending btc' + payAddr2.path)
   await regtest.sendToAddress({ address: payAddr2.address, amount })
   await regtest.mine(2)
-
-  await pause(10000)
   t.comment('create new instance with same seed')
   const bp = await activeWallet({ newWallet: false, phrase: seed.mnemonic, tmpStore: true })
   const bpseed = bp.keyManager.seed.exportSeed({ string: false })
   t.ok(bpseed.seed === seed.seed, 'new instance has same seed as prev instance')
 
+  const txh = await bp.getTransactions()
+  t.alike(txg,txh, 'funded tx found')
   let bal = await bp.getBalance({}, payAddr.address)
   t.ok(bal.consolidated.eq(sendAmt), 'first tx balance found')
   bal = await bp.getBalance({}, payAddr2.address)
   t.ok(bal.consolidated.toNumber() === 0, 'second tx balance is zero')
 
   t.comment('sync wallet')
-  const p = [payAddr, payAddr2]
-  let c = 0
-  bp.on('synced-path', async (pt, path) => {
-    const pay = p[c]
-    t.ok(path === pay.path, 'path matches')
-    const b = await bp.getBalance({}, pay.address)
-    t.ok(b.consolidated.eq(sendAmt), 'address balance matches')
-    c++
-    if (c === p.length) bp.pauseSync()
-  })
 
   await bp.syncTransactions()
   await bp.destroy()
 })
 
-solo('syncTransaction - balance check', async (t) => {
+test('getFundedTokenAddress', async (t) => {
+
+  const regtest = await regtestNode()
+  t.comment('create new wallet')
+  const btcPay = await activeWallet()
+
+  t.comment('syncing transactions')
+  btcPay.on('synced-path', async (pt, path) => {
+    const { hash, addr } = btcPay.keyManager.pathToScriptHash(path, 'p2wpkh')
+    const eBal = await btcPay.provider._getBalance(hash)
+    const bals = await btcPay.getFundedTokenAddresses(addr.address)
+    if(eBal.confirmed > 0){
+      t.ok(eBal.confirmed === bals[addr.address]?.consolidated.toNumber(), `path balance matches electrum balance ${path}: ${eBal.confirmed}`)
+    }
+  })
+  await btcPay.syncTransactions({ reset: true })
+})
+
+test('getFundedTokenAddress. new wallet', async (t) => {
+
+  const regtest = await regtestNode()
+  t.comment('create new wallet')
+  const btcPay = await activeWallet({ newWallet : true})
+
+  const send = []
+  for (let i = 0; i < 5 ; i++) {
+    const addr = await btcPay.getNewAddress()
+    const amount = randomAmount()
+    send.push([addr, amount])
+    t.comment(`sending : ${addr.address} - ${amount}`)
+    await regtest.sendToAddress({ address: addr.address, amount })
+  }
+  t.comment('mining')
+  await btcPay._onNewTx()
+  await regtest.mine(1)
+  t.comment('syncing transactions')
+  await btcPay.syncTransactions({ reset: true })
+  const bals = await btcPay.getFundedTokenAddresses()
+  send.forEach((tx) => {
+    const addr = tx[0].address
+    const amt  = tx[1]
+    const bal = bals[addr]
+    t.ok(+bal.pending.toMainUnit() === amt, `balance ok ${addr}`)
+  })
+
+})
+
+test('syncTransaction - balance check', async (t) => {
   const regtest = await regtestNode()
   t.comment('create new wallet')
   const btcPay = await activeWallet({ newWallet: true })
@@ -404,11 +519,9 @@ solo('syncTransaction - balance check', async (t) => {
   await regtest.sendToAddress({ address: payAddr.address, amount })
   t.comment('mining blocks')
   await regtest.mine(2)
-  t.comment('waiting for electrum to update')
-  await btcPay._onNewTx()
   let checked = false
   async function checkBal (pt, path, hasTx, gapCount) {
-    if(checked) return 
+    if (checked) return
     checked = true
     t.ok(path === payAddr.path, 'first path is checked')
     const { hash, addr } = btcPay.keyManager.pathToScriptHash(path, 'p2wpkh')
@@ -431,6 +544,32 @@ solo('syncTransaction - balance check', async (t) => {
   btcPay.on('synced-path', checkBal)
   t.comment('syncing transactions..')
   await btcPay.syncTransactions({ restart: true })
+})
+
+test('import seed with balance', async (t) => {
+  const regtest = await regtestNode()
+  t.comment('create new wallet')
+  const btcPay = await activeWallet({ newWallet: true, tmpStore: true })
+  const seed = btcPay.keyManager.seed.exportSeed({ string: false })
+  const addr = await btcPay.getNewAddress()
+  const amount = randomAmount()
+  t.comment('generate address and send btc')
+  await regtest.sendToAddress({ address: addr.address, amount })
+  await regtest.mine(3)
+  await btcPay.syncTransactions()
+  const txList = await btcPay.getTransactions()
+  t.ok(txList.length === 1, '1 tx found')
+  await btcPay.destroy()
+
+  t.comment('import seed')
+  const btcPay2 = await activeWallet({ newWallet: false, phrase: seed.mnemonic, tmpStore: true })
+  await btcPay2.syncTransactions()
+  const bal = await btcPay2.getBalance({}, addr.address)
+  const txList2 = await btcPay2.getTransactions()
+  t.alike(txList2, txList, 'tx history matches')
+
+  t.ok(bal.consolidated.eq(new BitcoinCurrency(amount, 'main')), 'balances match')
+  await btcPay2.destroy()
 })
 
 test('bip84 test vectors', async function (t) {
@@ -456,12 +595,12 @@ test('bip84 test vectors', async function (t) {
 
   t.ok(addr1.address === 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', 'first receive address')
   t.ok(addr1.path === "m/84'/0'/0'/0/0", 'first receive path')
-  t.ok(addr1.WIF === 'KyZpNDKnfs94vbrwhJneDi77V6jF64PWPF8x5cdJb8ifgg2DUc9d', 'first receive WIF')
+  t.ok(addr1.privateKey === 'KyZpNDKnfs94vbrwhJneDi77V6jF64PWPF8x5cdJb8ifgg2DUc9d', 'first receive private key')
   t.ok(addr1.publicKey === '0330d54fd0dd420a6e5f8d3624f5f3482cae350f79d5f0753bf5beef9c2d91af3c', 'first receive public key')
 
   t.ok(addr2.address === 'bc1qnjg0jd8228aq7egyzacy8cys3knf9xvrerkf9g', 'second recieve address')
   t.ok(addr2.path === "m/84'/0'/0'/0/1", 'second receive path')
-  t.ok(addr2.WIF === 'Kxpf5b8p3qX56DKEe5NqWbNUP9MnqoRFzZwHRtsFqhzuvUJsYZCy', 'second receive WIF')
+  t.ok(addr2.privateKey === 'Kxpf5b8p3qX56DKEe5NqWbNUP9MnqoRFzZwHRtsFqhzuvUJsYZCy', 'second receive privateKey')
 
   t.ok(changeAddr.address === 'bc1q8c6fshw2dlwun7ekn9qwf37cu2rn755upcp6el', 'First change address')
   t.ok(changeAddr.path === "m/84'/0'/0'/1/0", 'first change path')

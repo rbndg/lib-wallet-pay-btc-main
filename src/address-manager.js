@@ -14,6 +14,8 @@
 
 'use strict'
 const Bitcoin = require('./currency')
+const { WalletPay } = require('lib-wallet')
+const TxEntry = WalletPay.TxEntry
 
 class Balance {
   constructor (confirmed, pending, mempool, txid) {
@@ -77,7 +79,6 @@ class Balance {
   }
 }
 
-const MAX_BLOCK_SIZE = 100
 class AddressManager {
   constructor (config) {
     // @desc: address store that keeps track of balances
@@ -90,7 +91,6 @@ class AddressManager {
 
   async init () {
     await this.store.init()
-    await this._setHistoryIndex()
   }
 
   async close () {
@@ -138,77 +138,34 @@ class AddressManager {
     }
   }
 
-  async _setHistoryIndex () {
-    const index = await this._getIndex()
-    if (!index) {
-      await this.history.put('max_block_size', MAX_BLOCK_SIZE)
-      this._max_block_size = MAX_BLOCK_SIZE
-      return this._setIndex(index)
-    }
-    this._max_block_size = await this.history.get('max_block_size')
-    return index
-  }
-
-  _getIndex () {
-    return this.history.get('index')
-  }
-
-  _setIndex (index) {
-    return this.history.put('index', index)
-  }
-
   /**
   * @desc Get transaction history by block height
   */
-  getTxHeight (height) {
-    return this.history.get('i:' + height)
+  async getTxHeight (height) {
+    const prf = 'i:'
+    let results = []
+    await this.history.entries(async (key, value) => {
+      if (key.indexOf(prf) !== 0 || !value) return
+      const h = key.split(':')[1]
+      if (+h !== height) return
+      results = results.concat(value)
+    }, { gt: prf + height, lt: `${prf}${height + 1}` }, {})
+    return results
   }
 
-  /**
-  * @desc Remove transaction from mempool store
-  *       Mempool transactions have 0 height.
-  *       When they are confirmed they must be removed to prevent duplicate tx being kept in store
-  * @param {String} txid - transaction id
-  */
-  async _removeFromMempool (txid) {
-    let mp = await this.history.get('i:' + 0) || []
-    let mpx = null
-
-    for (const x in mp) {
-      mpx = mp[x]
-      if (mpx.txid === txid) {
-        mp.splice(x, 1)
-        break
-      }
-    }
-    if (mp.length === 0) {
-      mp = null
-    }
-    await this.history.put('i:' + 0, mp)
-    return mpx
+  _getDbTx (txid) {
+    return this.history.get('txid:' + txid)
   }
 
-  /**
-  * @desc Store transaction history in history store
-  **/
-  async storeTxHistory (history) {
-    for (const tx of history) {
-      let heightTx = await this.getTxHeight(tx.height)
-      if (!heightTx) {
-        heightTx = []
-      } else {
-        const exists = heightTx.some(htx => htx.txid === tx.txid)
-        if (exists) {
-          continue
-        }
-      }
-      const mtx = await this._removeFromMempool(tx.txid)
-      if (mtx) {
-        tx.mempool_ts = mtx.mempool_ts
-      }
-      heightTx.push(tx)
-      await this.history.put('i:' + tx.height, heightTx)
-    }
+  async getHeight (txid) {
+    return this.history.get(`tx:${txid}`)
+  }
+
+  async storeTx (tx) {
+    await this.history.delete(`i:0:${tx.txid}`, tx)
+    await this.history.delete(`i:${tx.height-1}:${tx.txid}`, tx)
+    await this.history.put(`i:${tx.height}:${tx.txid}`, tx)
+    await this.history.put(`tx:${tx.txid}`, tx.height)
   }
 
   getMempoolTx () {
@@ -220,11 +177,22 @@ class AddressManager {
   * @param {function} fn callback function to process each transaction
   * @returns {Promise}
   */
-  async getTransactions (fn) {
-    return this.history.entries(async (key, value) => {
+  async getTransactions (opts = {}) {
+    let results = []
+    let skipped = 0
+    const limit = opts.limit || 1000
+    const offset = opts.offset || 0
+
+    await this.history.entries(async (key, value) => {
+      if (skipped < offset) {
+        skipped++
+        return
+      }
+      if (results.length >= limit) return
       if (key.indexOf('i:') !== 0 || !value) return
-      return await fn(value)
-    })
+      results = results.concat(new TxEntry(value))
+    }, { gt: 'i:0', lt: `i:${'9'.repeat(1000000)}`, reverse: !opts.reverse })
+    return results
   }
 
   addSentTx (tx) {

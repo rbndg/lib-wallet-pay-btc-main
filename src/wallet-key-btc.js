@@ -77,7 +77,7 @@ class WalletKeyBitcoin {
     return {
       address,
       publicKey: node.publicKey.toString('hex'),
-      WIF: node.toWIF(),
+      privateKey: node.toWIF(),
       path
     }
   }

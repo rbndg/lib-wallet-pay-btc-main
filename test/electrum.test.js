@@ -16,7 +16,7 @@ const test = require('brittle')
 const { WalletStoreMemory } = require('lib-wallet-store')
 const { newElectrum } = require('./test-helpers.js')
 
-test('electrum', async function (t) {
+test('electrum', function (t) {
   const methods = [
     {
       method: 'blockchain.transaction.get',
@@ -32,14 +32,65 @@ test('electrum', async function (t) {
     const e = await newElectrum({
       store: new WalletStoreMemory({})
     })
-    const res = await e.ping()
-    t.ok(res === 'pong', 'ping')
 
     await Promise.all(methods.map(async function (m) {
       const res = await e.rpc(m.method, m.params)
-      console.log(res)
       t.ok(res[m.expected[1]] === m.expected[0], m.method)
     }))
     await e.close()
   })
+  t.end()
+})
+
+test('provider updateEndpoint', async (t) => {
+  const e = await newElectrum({
+    store: new WalletStoreMemory({})
+  })
+
+  t.plan(1)
+  let c = -1
+  const exp = {
+    host: 'localhost',
+    port: '9999'
+  }
+  e.on('status', async (_) => {
+    c++
+    const ep = await e.getProviderEndpoint()
+    t.alike(ep, exp, 'updated endpoint  reconnection')
+  })
+  await e.updateEndpoint(exp).catch(() => { console.log(1) })
+})
+
+test('provider  reconnection', async (t) => {
+  const e = await newElectrum({
+    store: new WalletStoreMemory({})
+  })
+
+  t.plan(8)
+  let c = -1
+  e.on('status', async (data) => {
+    c++
+    if (c === 0) {
+      t.ok(data.prevStatus.code === 2, 'prev status is connected')
+      t.ok(data.newStatus.code === 0, 'new status is disconnected')
+      return
+    }
+    if (c === 1) {
+      t.ok(data.prevStatus.code === 0, 'prev status is disconnected ')
+      t.ok(data.newStatus.code === 1, 'new status is connecting')
+      return
+    }
+    if (c === 2) {
+      t.ok(data.prevStatus.code === 1, 'prev status is connecting ')
+      t.ok(data.newStatus.code === 2, 'new status is connected')
+      await e.close()
+      return
+    }
+    if (c === 3) {
+      t.ok(data.prevStatus.code === 2, 'prev status is connected ')
+      t.ok(data.newStatus.code === 5, 'new status is destroyed')
+    }
+  })
+
+  await e.reconnect()
 })

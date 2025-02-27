@@ -19,7 +19,9 @@ const UnspentStore = require('./unspent-store.js')
 const { AddressManager } = require('./address-manager.js')
 const AddressWatch = require('./address-watch.js')
 const TotalBalance = require('./total-balance.js')
+const { WalletPay } = require('lib-wallet')
 
+const TxEntry = WalletPay.TxEntry
 const P2WPKH = 'p2wpkh'
 
 /**
@@ -52,10 +54,10 @@ class SyncManager extends EventEmitter {
       state: this.state,
       provider: this.provider
     })
-    this._addrWatch.on('new-tx', async (changeHash) => {
+    this._addrWatch.on('new-tx', async (...args) => {
       if (this._halt) return
       try {
-        await this._updateScriptHashBalance(changeHash)
+        await this._updateScriptHashBalance(...args)
       } catch (err) {
         console.log('failed to update addr balance', err)
       }
@@ -103,15 +105,18 @@ class SyncManager extends EventEmitter {
     return this._addr.getSentTx(txid)
   }
 
-  async _updateScriptHashBalance (changeHash) {
+  async _updateScriptHashBalance (changeScriptHash, changeHash) {
     const { provider, _addrWatch } = this
     const { extlist, inlist } = await _addrWatch.getWatchedAddress()
 
     const process = async (data) => {
       await Promise.all(data.map(async ([scripthash, balHash]) => {
+        if (changeScriptHash !== scripthash) return
         if (changeHash === balHash) return
         if (this._halt) return
-        const txHistory = await provider.getAddressHistory({ cache: false }, scripthash)
+        const txHistory = await provider.getMempoolTx({
+          cache: false
+        }, scripthash)
         await this._processHistory(txHistory)
       }))
     }
@@ -128,10 +133,15 @@ class SyncManager extends EventEmitter {
   * @description watch address for changes and save to store for when lib is resumed
   **/
   async watchAddress ([scriptHash, addr], addrType) {
-    // @desc: create address balance object
-    await this._addr.newAddress(addr.address)
-    // @desc: start watching address balance changes
-    await this._addrWatch.watchAddress(scriptHash, addrType)
+    try {
+      // @desc: create address balance object
+      await this._addr.newAddress(addr.address)
+      // @desc: start watching address balance changes
+      await this._addrWatch.watchAddress(scriptHash, addrType)
+    } catch (err) {
+      console.log('failed to watch addr', err)
+      throw err
+    }
   }
 
   /**
@@ -177,20 +187,18 @@ class SyncManager extends EventEmitter {
     const { currentBlock } = this
 
     // Get all txs in block range.
-    // We don't get tx in mempool as those are handled in _handleScriptHashChange
-    let arr = []
+    let arr = await this._addr.getTxHeight(0)
     for (let i = currentBlock.last; i <= currentBlock.current; i++) {
       const z = await this._addr.getTxHeight(i)
       if (!z) continue
       arr = arr.concat(z)
     }
-
     if (arr.length === 0) return
 
     let newTx
     try {
-      newTx = await Promise.all(arr.map(async (tx) => {
-        return await this.provider.getTransaction(tx.txid, { cache: false })
+      newTx = await Promise.all(arr.map(async ({ txid }) => {
+        return await this.provider.getTransaction(txid, { cache: false })
       }))
     } catch (err) {
       console.log('failed to get tx ', err)
@@ -198,11 +206,15 @@ class SyncManager extends EventEmitter {
     }
 
     try {
-      await this._processHistory(newTx)
+      newTx = await this._processHistory(newTx)
       await this._unspent.process()
     } catch (err) {
       console.log('failed to process block', err)
+      return
     }
+    newTx.forEach((entry) => {
+      this.emit('new-tx', entry)
+    })
   }
 
   /**
@@ -215,21 +227,70 @@ class SyncManager extends EventEmitter {
   async _processHistory (txHistory, path) {
     const { _addr } = this
 
-    txHistory = await Promise.all(txHistory.map(async (tx) => {
+    const newHistory = []
+    for (const tx of txHistory) {
       const txState = this._getTxState(tx)
-      await this._processUtxo(tx.out, 'out', txState, tx.fee, path)
-      await this._processUtxo(tx.in, 'in', txState, 0, path)
+      const outs = await this._processUtxo(tx.out, 'out', txState, tx.fee, path)
+      const ins = await this._processUtxo(tx.in, 'in', txState, 0, path)
+
       if (tx.height === 0 && !tx.mempool_first_seen) {
         tx.mempool_ts = Date.now()
       }
-      return tx
-    }))
 
-    await _addr.storeTxHistory(txHistory)
+      const ownOuts = outs.filter((out) => out.own_addr)
+      const ownIns = ins.filter((ins) => ins.own_addr)
 
-    txHistory.forEach((tx) => {
+      let direction
+      if (ownOuts.length === tx.out.length && ownIns.length === tx.in.length) {
+        direction = TxEntry.INTERNAL
+      } else if (ownIns.length === 0) {
+        direction = TxEntry.INCOMING
+      } else if (ownOuts.length > 0) {
+        direction = TxEntry.OUTGOING
+      } else {
+        direction = TxEntry.UNKNOWN
+      }
+
+      const totalOutput = outs.reduce((sum, d) => {
+        if((direction === TxEntry.INCOMING || direction === TxEntry.INTERNAL) && d.own_addr) {
+          return sum.add(d.value)
+        }
+
+        if(direction === TxEntry.OUTGOING && !d.own_addr) {
+          return sum.add(d.value)
+        }
+        return sum
+
+      }, new Bitcoin(0, 'main'))
+
+
+
+      const entry = new TxEntry({
+        txid: tx.txid,
+        from_address: tx.in.map(({ address }) => address),
+        to_address: tx.out.map(({ address }) => address),
+        fee: tx.fee,
+        amount: totalOutput,
+        height: tx.height,
+        direction,
+        to_address_meta: outs.map((out) => {
+          return {
+            amount : out.value, own_address: out.own_addr
+          }
+        })
+      })
+
+      if (entry.height === 0) {
+        this.emit('new-tx', entry)
+      }
+      await _addr.storeTx(entry)
+      newHistory.push(entry)
+    }
+
+    newHistory.forEach((tx) => {
       this._emitTxEvent(tx)
     })
+    return newHistory
   }
 
   /**
@@ -349,11 +410,22 @@ class SyncManager extends EventEmitter {
    */
   async _processUtxo (utxoList, inout, txState, txFee = 0, path) {
     const { _addr, keyManager, hdWallet, _totalBal, _unspent } = this
-    return Promise.all(utxoList.map(async (utxo) => {
+    let addrObj
+
+    if (path) {
+      addrObj = keyManager.pathToScriptHash(path, P2WPKH)
+    }
+    const res = []
+
+    for (const utxo of utxoList) {
       /** @type {Object} UTXO address balance */
       let bal = await _addr.get(utxo.address)
+
       /** @type {Object} HD wallet address info */
       let addr = await hdWallet.getAddress(utxo.address)
+
+      /** @desc flag for checking if utxo matches the HD PATH **/
+      utxo.own_addr = false
 
       if (!bal) {
         /** @desc Create new address record if balance doesn't exist */
@@ -363,23 +435,32 @@ class SyncManager extends EventEmitter {
 
       if (path && !addr) {
         /** @desc Derive address from path if not in HD wallet */
-        const addrObj = keyManager.pathToScriptHash(path, P2WPKH)
-        if (addrObj.addr.address !== utxo.address) return
+        if (addrObj.addr.address !== utxo.address) {
+          res.push(utxo)
+          continue
+        }
         await hdWallet.addAddress(addrObj.addr)
         addr = await hdWallet.getAddress(addrObj.addr.address)
       }
 
-      if (!addr) return
+      if (!addr) {
+        res.push(utxo)
+        continue
+      }
+      utxo.own_addr = true
 
       /** @type {string} Unique UTXO identifier */
       const point = inout === 'out' ? utxo.txid + ':' + utxo.index : utxo.prev_txid + ':' + utxo.prev_index
 
-      /** @desc Skip if already processed */
-      if (bal[inout].getTx(txState, point)) return
-
       /** @desc Set UTXO address info */
       utxo.address_public_key = addr.publicKey
       utxo.address_path = addr.path
+
+      /** @desc Skip if already processed */
+      if (bal[inout].getTx(txState, point)) {
+        res.push(utxo)
+        continue
+      }
 
       /** @desc Mark point as processed */
       bal[inout].addTxid(txState, point, utxo.value)
@@ -394,18 +475,9 @@ class SyncManager extends EventEmitter {
 
       /** @desc Add to unspent store for future signings */
       await _unspent.add(utxo, inout)
-      if (inout === 'out') {
-        this.emit('new-tx', {
-          address: utxo.address,
-          value: utxo.value,
-          txid: utxo.txid,
-          height: utxo.height,
-          address_path: utxo.address_path,
-          address_public_key: utxo.address_public_key,
-          state: txState
-        })
-      }
-    }))
+      res.push(utxo)
+    }
+    return res
   }
 
   stopSync () {
@@ -425,8 +497,8 @@ class SyncManager extends EventEmitter {
     return this._unspent.getUtxoForAmount(value, strategy)
   }
 
-  getTransactions (fn) {
-    return this._addr.getTransactions(fn)
+  getTransactions (opts, fn) {
+    return this._addr.getTransactions(opts, fn)
   }
 }
 

@@ -40,20 +40,28 @@ class AddressWatch extends EventEmitter {
    */
   async startWatching () {
     const { state, provider } = this
-    const scriptHashes = (await state.getWatchedScriptHashes('in')).concat(
-      await state.getWatchedScriptHashes('ext')
-    )
+    const inScriptHash = await state.getWatchedScriptHashes('in')
+    const extScriptHash = await state.getWatchedScriptHashes('ext')
 
-    provider.on('new-tx', async (changeHash) => {
-      this.emit('new-tx', changeHash)
+    provider.on('new-tx', async (scriptHash, changeHash) => {
+      this.emit('new-tx', scriptHash, changeHash)
     })
 
+    const subscribe = async (hashes, addrType) => {
+      try {
+        await Promise.all(hashes.map(async ([scripthash]) => {
+          return this.watchAddress(scripthash, addrType)
+        }))
+      } catch (err) {
+        console.log('failed to watch address ' + addrType, err)
+      }
+    }
+
     try {
-      await Promise.all(scriptHashes.map(async ([scripthash]) => {
-        return provider.subscribeToAddress(scripthash)
-      }))
+      await subscribe(inScriptHash, 'in')
+      await subscribe(extScriptHash, 'ext')
     } catch (err) {
-      console.log('failed to watch address', err)
+      console.log('failed to subscribe', err)
     }
   }
 
@@ -81,7 +89,18 @@ class AddressWatch extends EventEmitter {
     if (balHash?.message) {
       throw new Error('Failed to subscribe to address ' + balHash.message)
     }
-    hashList.push([scriptHash, balHash])
+
+    let added = false
+    hashList.forEach(([sc], index) => {
+      if (sc === scriptHash) {
+        hashList[index] = [sc, balHash]
+        added = true
+      }
+    })
+
+    if (!added) {
+      hashList.push([scriptHash, balHash])
+    }
     await state.addWatchedScriptHashes(hashList, addrType)
   }
 

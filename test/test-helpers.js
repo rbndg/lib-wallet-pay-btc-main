@@ -2,7 +2,7 @@ const BitcoinPay = require('../src/wallet-pay-btc.js')
 const { WalletStoreHyperbee } = require('lib-wallet-store')
 const KeyManager = require('../src/wallet-key-btc.js')
 const BIP39Seed = require('wallet-seed-bip39')
-const Electrum = require('../src/electrum.js')
+const Electrum = require('../src/provider.js')
 const { bitcoin } = require('../../wallet-test-tools/')
 const BitcoinCurr = require('../src/currency')
 const fs = require('fs')
@@ -99,7 +99,7 @@ function promiseSteps (arr) {
   return pass
 }
 
-async function rmDataDir () {
+function rmDataDir () {
   fs.rmSync(_datadir, { recursive: true, force: true })
 }
 

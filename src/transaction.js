@@ -16,6 +16,7 @@
 const bitcoin = require('bitcoinjs-lib')
 const { EventEmitter } = require('events')
 const Bitcoin = require('./currency.js')
+const { WalletPay } = require('lib-wallet')
 
 const DUST_LIMIT = 546
 
@@ -29,14 +30,15 @@ class Transaction extends EventEmitter {
     this.keyManager = config.keyManager
     this._getInternalAddress = config.getInternalAddress
     this._syncManager = config.syncManager
+    this._txData = []
   }
 
   async send (opts) {
     const tx = await this._createTransaction(opts)
     let txid
     try {
-      txid = await this._broadcastTransaction(tx)
-    } catch(err) {
+      txid = await this._broadcastTransaction(this.getLastAttempt())
+    } catch (err) {
       console.log(err)
       throw new Error('failed to broadcast tx')
     }
@@ -46,6 +48,10 @@ class Transaction extends EventEmitter {
     }
     this._syncManager.unlockUtxo(true)
     return tx
+  }
+
+  getLastAttempt () {
+    return this._txData.at(-1)
   }
 
   async _broadcastTransaction (tx) {
@@ -108,17 +114,30 @@ class Transaction extends EventEmitter {
     })
     psbt.finalizeAllInputs()
     const tx = psbt.extractTransaction()
-    return {
-      sendAddress: address,
+    const sentTx = {
+      txid: tx.getId(),
+      changeAddress: changeAddr,
+      to: address,
       feeRate: psbt.getFeeRate(),
-      totalFee: totalFee.toNumber(),
-      totalSpent: totalFee.plus(sendAmount.toBaseUnit()).toNumber(),
+      fee: totalFee.toNumber(),
+      totalSpent: new Bitcoin(totalFee.plus(sendAmount.toBaseUnit()).toNumber(), 'base'),
       vSize: tx.virtualSize(),
       hex: tx.toHex(),
-      txid: tx.getId(),
       utxo,
       vout: tx.outs
     }
+
+    this._txData.push(sentTx)
+
+    return new WalletPay.TxEntry({
+      txid: sentTx.txid,
+      to_address: psbt.txOutputs.map(({address}) => address ),
+      fee: sentTx.fee,
+      fee_rate: sentTx.feeRate,
+      amount: sendAmount,
+      from_address: utxo.map(({ address }) => address),
+      direction: WalletPay.TxEntry.OUTGOING
+    })
   }
 
   async _createTransaction ({ address, amount, unit, fee }) {
@@ -130,23 +149,22 @@ class Transaction extends EventEmitter {
 
     // Generate a fake transaction to determine weight of the transaction
     // then we create a new tx with correct fee
-    let fakeTx, realTx
+    let finalTx
 
     try {
-      fakeTx = await this._generateRawTx(utxoSet, fee, sendAmount, address, changeAddr)
-    } catch(err) {
-      throw new Error('Failed to simulate tx: '+ err.message)
+      await this._generateRawTx(utxoSet, fee, sendAmount, address, changeAddr)
+    } catch (err) {
+      throw new Error('Failed to simulate tx: ' + err.message)
     }
 
-    try { 
-      realTx = await this._generateRawTx(utxoSet, fee, sendAmount, address, changeAddr, fakeTx.vSize)
-    } catch(err) {
-      throw new Error('failed to send transaction'+ err.message)
+    try {
+      finalTx = await this._generateRawTx(utxoSet, fee, sendAmount, address, changeAddr, this.getLastAttempt().vSize)
+    } catch (err) {
+      throw new Error('failed to send transaction' + err.message)
     }
 
-    realTx.changeAddress = changeAddr
-    await this._syncManager.addSentTx(realTx)
-    return realTx
+    await this._syncManager.addSentTx(this.getLastAttempt())
+    return finalTx
   }
 }
 

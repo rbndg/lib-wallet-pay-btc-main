@@ -14,9 +14,12 @@
 'use strict'
 
 const { WalletPay, HdWallet } = require('lib-wallet')
+const Provider = require('./provider.js')
+const KeyManager = require('./wallet-key-btc.js')
 const Transaction = require('./transaction.js')
 const SyncManager = require('./sync-manager.js')
 const Bitcoin = require('./currency')
+const FeeEstimate = require('./fee-estimate.js')
 const {
   BlockCounter,
   StateDb
@@ -53,6 +56,7 @@ class WalletPayBitcoin extends WalletPay {
     // @desc: Only supported address type.
     this._addressType = 'p2wpkh'
     this.Currency = Bitcoin
+    this._feeEst = new FeeEstimate()
   }
 
   /**
@@ -60,25 +64,21 @@ class WalletPayBitcoin extends WalletPay {
    * @async
    */
   async _destroy () {
+    await this.pauseSync()
     await this.provider.close()
     await this._syncManager.close()
-    await this.pauseSync()
     await this.state.store.close()
     await this._hdWallet.close()
     await this.keyManager.close()
     this.ready = false
   }
 
-  /**
-   * @description Start bitcoin asset.
-   * @param {Wallet} wallet an instance of Wallet
-   **/
   async initialize (wallet) {
     if (this.ready) return
 
     // @desc use default key manager
     if (!this.keyManager) {
-      this.keyManager = new (require('./wallet-key-btc.js'))({ seed: wallet.seed, network: this.network })
+      this.keyManager = new KeyManager({ seed: wallet.seed, network: this.network })
       await this.keyManager.init()
     }
 
@@ -91,12 +91,14 @@ class WalletPayBitcoin extends WalletPay {
 
     if (!this.provider) {
       this._electrum_config.store = this.store
-      this.provider = new (require('./electrum.js'))(this._electrum_config)
+      this.provider = new Provider(this._electrum_config)
     }
 
     if (!this.provider.isConnected()) {
       await this.provider.connect()
     }
+
+    this._loadPlugin('provider')
 
     let coinType
     if (['bitcoin', 'mainnet'].includes(this.network)) {
@@ -206,7 +208,25 @@ class WalletPayBitcoin extends WalletPay {
    * @returns {Promise}
    **/
   getTransactions (opts, fn) {
-    return this._syncManager.getTransactions(fn)
+    return this._syncManager.getTransactions(opts, fn)
+  }
+
+  /**
+   * @description  get addresses and their balances
+   * @param {object} opts
+   * @returns Map
+   **/
+  async getFundedTokenAddresses (opts) {
+    const accts = {}
+    const addrs = await this._hdWallet.getAllAddress()
+
+    await Promise.all(addrs.map(async (addr) => {
+      const bal = await this.getBalance({}, addr)
+      if (bal.consolidated.toNumber() > 0) {
+        accts[addr] = bal
+      }
+    }))
+    return accts
   }
 
   /**
@@ -284,6 +304,10 @@ class WalletPayBitcoin extends WalletPay {
 
   static parsePath (path) {
     return HdWallet.parsePath(path)
+  }
+
+  async getFeeEstimate () {
+    return this._feeEst.getFeeEstimate()
   }
 }
 
